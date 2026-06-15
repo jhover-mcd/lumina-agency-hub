@@ -1,0 +1,12 @@
+{
+	"client-a-site-key-abc123": {
+		"label": "Client A — Main Site",
+		"user_id": "17841400000000001",
+		"active": true
+	},
+	"client-b-site-key-def456": {
+		"label": "Client B — Homepage Feed",
+		"user_id": "17841400000000002",
+		"active": true
+	}
+}
