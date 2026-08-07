@@ -364,7 +364,14 @@ class Lumina_Agency_Hub {
 
 	private function render_manage_page() {
 		if ( ! $this->is_admin_authenticated() ) {
-			$this->render_login_form();
+			$login_vars = array();
+
+			if ( ! empty( $_GET['oauth_done'] ) ) {
+				$login_vars['oauth_done']    = preg_replace( '/[^a-f0-9]/', '', (string) $_GET['oauth_done'] );
+				$login_vars['oauth_pending'] = true;
+			}
+
+			$this->render_login_form( $login_vars );
 			return;
 		}
 
@@ -420,15 +427,20 @@ class Lumina_Agency_Hub {
 		return isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'];
 	}
 
-	private function render_login_form() {
+	private function render_login_form( array $extra = array() ) {
 		$this->render_template(
 			'login.php',
-			array(
-				'page_title'   => 'Sign In',
-				'page_heading' => 'Welcome back',
-				'page_intro'   => 'Sign in to manage Lumina client licenses and Instagram feed access.',
-				'narrow'       => true,
-				'error'        => ! empty( $_GET['login_error'] ),
+			array_merge(
+				array(
+					'page_title'   => 'Sign In',
+					'page_heading' => 'Welcome back',
+					'page_intro'   => 'Sign in to manage Lumina client licenses and Instagram feed access.',
+					'narrow'       => true,
+					'error'        => ! empty( $_GET['login_error'] ),
+					'oauth_done'   => '',
+					'oauth_pending'=> false,
+				),
+				$extra
 			)
 		);
 	}
@@ -454,21 +466,34 @@ class Lumina_Agency_Hub {
 		include __DIR__ . '/../templates/layout.php';
 	}
 
+	private function auth_cookie_options() {
+		return array(
+			'expires'  => time() + 86400,
+			'path'     => '/',
+			'secure'   => $this->is_https(),
+			'httponly' => true,
+			'samesite' => 'Lax',
+		);
+	}
+
 	private function is_admin_authenticated() {
 		if ( 'POST' === ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) && isset( $_POST['hub_password'] ) ) {
 			if ( hash_equals( (string) $this->config['admin_password'], (string) $_POST['hub_password'] ) ) {
 				setcookie(
 					'lumina_hub_auth',
 					hash( 'sha256', $this->config['admin_password'] ),
-					array(
-						'expires'  => time() + 86400,
-						'path'     => '/',
-						'secure'   => $this->is_https(),
-						'httponly' => true,
-						'samesite' => 'Strict',
-					)
+					$this->auth_cookie_options()
 				);
-				$this->redirect_manage();
+
+				$query = '';
+				if ( ! empty( $_POST['oauth_done'] ) ) {
+					$state = preg_replace( '/[^a-f0-9]/', '', (string) $_POST['oauth_done'] );
+					if ( '' !== $state ) {
+						$query = 'oauth_done=' . rawurlencode( $state );
+					}
+				}
+
+				$this->redirect_manage( $query );
 			}
 
 			$this->redirect_manage( 'login_error=1' );

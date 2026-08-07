@@ -21,7 +21,7 @@ if ( PHP_SESSION_NONE === session_status() ) {
 			'cookie_httponly' => true,
 			'cookie_secure'   => ( ! empty( $_SERVER['HTTPS'] ) && 'off' !== $_SERVER['HTTPS'] )
 				|| ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ),
-			'cookie_samesite' => 'Strict',
+			'cookie_samesite' => 'Lax',
 		)
 	);
 }
