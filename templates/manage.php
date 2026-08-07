@@ -8,6 +8,7 @@
  * @var array|null $oauth_result OAuth connection result to display once.
  * @var string $oauth_error OAuth error message.
  * @var string $oauth_redirect_uri Registered redirect URI.
+ * @var array|null $token_account Live lookup from config token.
  */
 
 defined( 'LUMINA_HUB_RENDER' ) || exit;
@@ -52,6 +53,30 @@ foreach ( $licenses as $license ) {
 		</ul>
 	<?php endif; ?>
 </div>
+
+<?php if ( ! empty( $token_account ) && empty( $token_account['error'] ) ) : ?>
+<div class="lumina-hub-card">
+	<h2>Current token account</h2>
+	<p class="description">This is read live from the access token in <code>config.php</code>. Paste the License User ID into each license row exactly as shown here.</p>
+	<div class="lumina-hub-oauth-grid">
+		<div class="lumina-hub-field">
+			<label>License User ID</label>
+			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['user_id'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
+		</div>
+		<div class="lumina-hub-field">
+			<label>Username</label>
+			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['username'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
+		</div>
+		<div class="lumina-hub-field">
+			<label>Account type</label>
+			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['account_type'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
+		</div>
+	</div>
+	<p class="description">Instagram Login IDs often start with <code>2808…</code> instead of <code>178414…</code>. That is normal. The hub now loads media via <code>/me/media</code>, not by calling the numeric ID directly.</p>
+</div>
+<?php elseif ( ! empty( $token_account['error'] ) ) : ?>
+<div class="lumina-hub-error">Could not read the current token account: <?php echo htmlspecialchars( (string) $token_account['error'], ENT_QUOTES, 'UTF-8' ); ?></div>
+<?php endif; ?>
 
 <div class="lumina-hub-stats">
 	<div class="lumina-hub-stat">
@@ -149,8 +174,8 @@ foreach ( $licenses as $license ) {
 			<input type="text" id="label" name="label" placeholder="Client site name" />
 		</div>
 		<div class="lumina-hub-field">
-			<label for="user_id">Instagram Professional Account ID</label>
-			<input type="text" id="user_id" name="user_id" required placeholder="17841400000000000" />
+			<label for="user_id">License User ID</label>
+			<input type="text" id="user_id" name="user_id" required placeholder="28080537801582012" />
 		</div>
 		<button type="submit" class="lumina-hub-btn">Add license</button>
 	</form>

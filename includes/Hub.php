@@ -20,9 +20,10 @@ class Lumina_Agency_Hub {
 		if ( '/health' === $path ) {
 			$this->json(
 				array(
-					'status'  => 'ok',
-					'service' => 'lumina-agency-hub',
-					'demo'    => ! empty( $this->config['demo_mode'] ),
+					'status'    => 'ok',
+					'service'   => 'lumina-agency-hub',
+					'hub_build' => '2026-08-07-me-media-v2',
+					'demo'      => ! empty( $this->config['demo_mode'] ),
 				)
 			);
 		}
@@ -193,10 +194,53 @@ class Lumina_Agency_Hub {
 		return $items;
 	}
 
+	private function instagram_graph_url( $path, array $query = array() ) {
+		$url = 'https://graph.instagram.com/v22.0/' . ltrim( $path, '/' );
+
+		if ( ! empty( $query ) ) {
+			$url .= '?' . http_build_query( $query );
+		}
+
+		return $url;
+	}
+
+	private function resolve_account_from_token( $access_token ) {
+		$profile = $this->remote_get(
+			$this->instagram_graph_url(
+				'me',
+				array(
+					'fields'       => 'user_id,username,account_type,id',
+					'access_token' => $access_token,
+				)
+			)
+		);
+
+		if ( isset( $profile['error'] ) ) {
+			return $profile;
+		}
+
+		$user_id = (string) ( $profile['user_id'] ?? '' );
+
+		if ( '' === $user_id ) {
+			return array(
+				'error' => 'Instagram /me did not return user_id. Confirm this is a Business or Creator account authorized for instagram_business_basic.',
+				'code'  => 502,
+			);
+		}
+
+		return array(
+			'user_id'       => $user_id,
+			'username'      => (string) ( $profile['username'] ?? '' ),
+			'account_type'  => (string) ( $profile['account_type'] ?? '' ),
+			'app_scoped_id' => (string) ( $profile['id'] ?? '' ),
+		);
+	}
+
 	private function fetch_instagram_media( $user_id, $limit ) {
 		unset( $user_id );
 
-		$url = 'https://graph.instagram.com/me/media?' . http_build_query(
+		$url = $this->instagram_graph_url(
+			'me/media',
 			array(
 				'fields'       => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
 				'limit'        => $limit,
@@ -242,16 +286,19 @@ class Lumina_Agency_Hub {
 	}
 
 	private function fetch_instagram_profile_for_token() {
-		$url = 'https://graph.instagram.com/me?' . http_build_query(
-			array(
-				'fields'       => 'user_id,username,account_type,media_count',
-				'access_token' => $this->config['instagram_access_token'],
-			)
+		$account = $this->resolve_account_from_token( (string) $this->config['instagram_access_token'] );
+
+		if ( isset( $account['error'] ) ) {
+			return $account;
+		}
+
+		return array(
+			'id'           => $account['user_id'],
+			'user_id'      => $account['user_id'],
+			'username'     => $account['username'],
+			'account_type' => $account['account_type'],
+			'media_count'  => 0,
 		);
-
-		$profile = $this->remote_get( $url );
-
-		return $this->normalize_instagram_profile( $profile );
 	}
 
 	private function normalize_instagram_profile( $profile ) {
@@ -282,7 +329,7 @@ class Lumina_Agency_Hub {
 
 		if ( $token_user_id !== $license_user_id ) {
 			return array(
-				'error' => 'License User ID does not match the Instagram account for this token. Update the license to use User ID ' . $token_user_id . '.',
+				'error' => 'License User ID does not match the Instagram account for this token. In /manage, copy the "License User ID" from Current token account and paste it into this license.',
 				'code'  => 422,
 			);
 		}
@@ -501,6 +548,11 @@ class Lumina_Agency_Hub {
 			}
 		}
 
+		$token_account = null;
+		if ( empty( $this->config['demo_mode'] ) && ! empty( $this->config['instagram_access_token'] ) ) {
+			$token_account = $this->resolve_account_from_token( (string) $this->config['instagram_access_token'] );
+		}
+
 		$this->render_template(
 			'manage.php',
 			array(
@@ -513,6 +565,7 @@ class Lumina_Agency_Hub {
 				'oauth_result'  => $oauth_result,
 				'oauth_error'   => $oauth_error,
 				'oauth_redirect_uri' => $this->get_oauth_redirect_uri(),
+				'token_account' => $token_account,
 			)
 		);
 	}
@@ -737,7 +790,6 @@ class Lumina_Agency_Hub {
 
 		$short = $this->normalize_oauth_token_payload( $short );
 		$short_token = (string) ( $short['access_token'] ?? '' );
-		$user_id     = (string) ( $short['user_id'] ?? '' );
 
 		if ( '' === $short_token ) {
 			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Instagram did not return an access token.' ) );
@@ -763,46 +815,28 @@ class Lumina_Agency_Hub {
 			$expires_in   = (int) ( $long['expires_in'] ?? 0 );
 		}
 
-		$profile = $this->remote_get(
-			'https://graph.instagram.com/me?' . http_build_query(
-				array(
-					'fields'       => 'user_id,username,account_type',
-					'access_token' => $access_token,
-				)
-			)
-		);
+		$account = $this->resolve_account_from_token( $access_token );
 
-		$profile = $this->normalize_instagram_profile( $profile );
-
-		$username     = '';
-		$account_type = '';
-
-		if ( isset( $profile['error'] ) ) {
-			if ( '' === $user_id ) {
-				$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Profile lookup: ' . (string) $profile['error'] ) );
-			}
-		} else {
-			$username     = (string) ( $profile['username'] ?? '' );
-			$account_type = (string) ( $profile['account_type'] ?? '' );
-
-			if ( ! empty( $profile['user_id'] ) ) {
-				$user_id = (string) $profile['user_id'];
-			} elseif ( '' === $user_id && ! empty( $profile['id'] ) ) {
-				$user_id = (string) $profile['id'];
-			}
+		if ( isset( $account['error'] ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Account lookup: ' . (string) $account['error'] ) );
 		}
+
+		$user_id      = (string) $account['user_id'];
+		$username     = (string) $account['username'];
+		$account_type = (string) $account['account_type'];
 
 		$this->delete_oauth_state( $state );
 		$this->store_oauth_result(
 			$state,
 			array(
-				'user_id'      => $user_id,
-				'username'     => $username,
-				'account_type' => $account_type,
-				'access_token' => $access_token,
-				'expires_in'   => $expires_in,
-				'token_note'   => $token_note,
-				'connected_at' => gmdate( 'c' ),
+				'user_id'       => $user_id,
+				'username'      => $username,
+				'account_type'  => $account_type,
+				'app_scoped_id' => (string) ( $account['app_scoped_id'] ?? '' ),
+				'access_token'  => $access_token,
+				'expires_in'    => $expires_in,
+				'token_note'    => $token_note,
+				'connected_at'  => gmdate( 'c' ),
 			)
 		);
 

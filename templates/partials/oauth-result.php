@@ -15,10 +15,16 @@ $config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( 
 
 	<div class="lumina-hub-oauth-grid">
 		<div class="lumina-hub-field">
-			<label>Instagram Professional Account ID</label>
+			<label>License User ID</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $oauth_result['user_id'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
-			<p class="description">Use this on the license row — not the shorter app-scoped ID from older OAuth responses.</p>
+			<p class="description">Paste this exact value into the license row. IDs starting with <code>2808…</code> are normal for Instagram Login.</p>
 		</div>
+		<?php if ( ! empty( $oauth_result['app_scoped_id'] ) && $oauth_result['app_scoped_id'] !== ( $oauth_result['user_id'] ?? '' ) ) : ?>
+		<div class="lumina-hub-field">
+			<label>App-scoped ID (reference only)</label>
+			<input type="text" readonly value="<?php echo htmlspecialchars( (string) $oauth_result['app_scoped_id'], ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
+		</div>
+		<?php endif; ?>
 		<div class="lumina-hub-field">
 			<label>Username</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $oauth_result['username'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
