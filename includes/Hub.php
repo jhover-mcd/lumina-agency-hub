@@ -22,7 +22,7 @@ class Lumina_Agency_Hub {
 				array(
 					'status'    => 'ok',
 					'service'   => 'lumina-agency-hub',
-					'hub_build' => '2026-08-07-me-media-v2',
+					'hub_build' => '2026-08-07-unversioned-graph',
 					'demo'      => ! empty( $this->config['demo_mode'] ),
 				)
 			);
@@ -195,7 +195,7 @@ class Lumina_Agency_Hub {
 	}
 
 	private function instagram_graph_url( $path, array $query = array() ) {
-		$url = 'https://graph.instagram.com/v22.0/' . ltrim( $path, '/' );
+		$url = 'https://graph.instagram.com/' . ltrim( $path, '/' );
 
 		if ( ! empty( $query ) ) {
 			$url .= '?' . http_build_query( $query );

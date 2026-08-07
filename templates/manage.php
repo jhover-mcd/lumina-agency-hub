@@ -75,7 +75,15 @@ foreach ( $licenses as $license ) {
 	<p class="description">Instagram Login IDs often start with <code>2808…</code> instead of <code>178414…</code>. That is normal. The hub now loads media via <code>/me/media</code>, not by calling the numeric ID directly.</p>
 </div>
 <?php elseif ( ! empty( $token_account['error'] ) ) : ?>
-<div class="lumina-hub-error">Could not read the current token account: <?php echo htmlspecialchars( (string) $token_account['error'], ENT_QUOTES, 'UTF-8' ); ?></div>
+<div class="lumina-hub-error">
+	<p><strong>Could not read the current token account:</strong> <?php echo htmlspecialchars( (string) $token_account['error'], ENT_QUOTES, 'UTF-8' ); ?></p>
+	<p class="description">This usually means the access token in <code>config.php</code> is expired, was pasted incorrectly, or your Meta app does not yet have <strong>Advanced Access</strong> for <code>instagram_business_basic</code>.</p>
+	<ul class="lumina-hub-list">
+		<li>Run <strong>Connect Instagram account</strong> again and paste the new token into <code>config.php</code>.</li>
+		<li>In Meta App Dashboard → <strong>App Review → Permissions and Features</strong>, set <code>instagram_business_basic</code> to Advanced Access / Ready to publish.</li>
+		<li>Confirm Business Verification is complete for the app owner.</li>
+	</ul>
+</div>
 <?php endif; ?>
 
 <div class="lumina-hub-stats">
