@@ -238,19 +238,77 @@ class Lumina_Agency_Hub {
 	}
 
 	private function remote_get( $url ) {
-		$context = stream_context_create(
-			array(
+		return $this->http_request( 'GET', $url );
+	}
+
+	private function http_request( $method, $url, array $payload = array() ) {
+		$method = strtoupper( $method );
+
+		if ( function_exists( 'curl_init' ) ) {
+			$ch = curl_init( $url );
+
+			curl_setopt_array(
+				$ch,
+				array(
+					CURLOPT_RETURNTRANSFER => true,
+					CURLOPT_TIMEOUT        => 20,
+					CURLOPT_HTTPHEADER     => array( 'Accept: application/json' ),
+					CURLOPT_SSL_VERIFYPEER => true,
+					CURLOPT_SSL_VERIFYHOST => 2,
+					CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+				)
+			);
+
+			if ( 'POST' === $method ) {
+				curl_setopt( $ch, CURLOPT_POST, true );
+				curl_setopt( $ch, CURLOPT_POSTFIELDS, http_build_query( $payload ) );
+				curl_setopt(
+					$ch,
+					CURLOPT_HTTPHEADER,
+					array(
+						'Accept: application/json',
+						'Content-Type: application/x-www-form-urlencoded',
+					)
+				);
+			}
+
+			$body  = curl_exec( $ch );
+			$errno = curl_errno( $ch );
+			$error = curl_error( $ch );
+			curl_close( $ch );
+
+			if ( false === $body || $errno ) {
+				return array(
+					'error' => 'Instagram request failed: ' . ( $error ?: 'network error' ),
+					'code'  => 502,
+				);
+			}
+		} else {
+			$options = array(
 				'http' => array(
 					'timeout' => 20,
 					'header'  => "Accept: application/json\r\n",
 				),
-			)
-		);
+				'ssl'  => array(
+					'verify_peer'      => true,
+					'verify_peer_name' => true,
+				),
+			);
 
-		$body = @file_get_contents( $url, false, $context );
+			if ( 'POST' === $method ) {
+				$options['http']['method']  = 'POST';
+				$options['http']['header'] .= "Content-Type: application/x-www-form-urlencoded\r\n";
+				$options['http']['content'] = http_build_query( $payload );
+			}
 
-		if ( false === $body ) {
-			return array( 'error' => 'Instagram API request failed.', 'code' => 502 );
+			$body = @file_get_contents( $url, false, stream_context_create( $options ) );
+
+			if ( false === $body ) {
+				return array(
+					'error' => 'Instagram request failed. Install php-curl on the server for reliable outbound HTTPS.',
+					'code'  => 502,
+				);
+			}
 		}
 
 		$data = json_decode( $body, true );
@@ -259,8 +317,12 @@ class Lumina_Agency_Hub {
 			return array( 'error' => 'Invalid Instagram API response.', 'code' => 502 );
 		}
 
+		if ( ! empty( $data['error_message'] ) ) {
+			return array( 'error' => (string) $data['error_message'], 'code' => 400 );
+		}
+
 		if ( ! empty( $data['error']['message'] ) ) {
-			return array( 'error' => $data['error']['message'], 'code' => 400 );
+			return array( 'error' => (string) $data['error']['message'], 'code' => 400 );
 		}
 
 		return $data;
@@ -617,9 +679,10 @@ class Lumina_Agency_Hub {
 		);
 
 		if ( isset( $short['error'] ) ) {
-			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $short['error'] ) );
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Token exchange: ' . (string) $short['error'] ) );
 		}
 
+		$short = $this->normalize_oauth_token_payload( $short );
 		$short_token = (string) ( $short['access_token'] ?? '' );
 		$user_id     = (string) ( $short['user_id'] ?? '' );
 
@@ -637,12 +700,15 @@ class Lumina_Agency_Hub {
 			)
 		);
 
+		$token_note = '';
 		if ( isset( $long['error'] ) ) {
-			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $long['error'] ) );
+			$access_token = $short_token;
+			$expires_in   = 3600;
+			$token_note   = 'Long-lived exchange failed (' . $long['error'] . '). Showing the short-lived token instead (~1 hour).';
+		} else {
+			$access_token = (string) ( $long['access_token'] ?? $short_token );
+			$expires_in   = (int) ( $long['expires_in'] ?? 0 );
 		}
-
-		$access_token = (string) ( $long['access_token'] ?? $short_token );
-		$expires_in   = (int) ( $long['expires_in'] ?? 0 );
 
 		$profile = $this->remote_get(
 			'https://graph.instagram.com/me?' . http_build_query(
@@ -653,12 +719,20 @@ class Lumina_Agency_Hub {
 			)
 		);
 
-		if ( isset( $profile['error'] ) ) {
-			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $profile['error'] ) );
-		}
+		$username     = '';
+		$account_type = '';
 
-		if ( '' === $user_id && ! empty( $profile['id'] ) ) {
-			$user_id = (string) $profile['id'];
+		if ( isset( $profile['error'] ) ) {
+			if ( '' === $user_id ) {
+				$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Profile lookup: ' . (string) $profile['error'] ) );
+			}
+		} else {
+			$username     = (string) ( $profile['username'] ?? '' );
+			$account_type = (string) ( $profile['account_type'] ?? '' );
+
+			if ( '' === $user_id && ! empty( $profile['id'] ) ) {
+				$user_id = (string) $profile['id'];
+			}
 		}
 
 		$this->delete_oauth_state( $state );
@@ -666,10 +740,11 @@ class Lumina_Agency_Hub {
 			$state,
 			array(
 				'user_id'      => $user_id,
-				'username'     => (string) ( $profile['username'] ?? '' ),
-				'account_type' => (string) ( $profile['account_type'] ?? '' ),
+				'username'     => $username,
+				'account_type' => $account_type,
 				'access_token' => $access_token,
 				'expires_in'   => $expires_in,
+				'token_note'   => $token_note,
 				'connected_at' => gmdate( 'c' ),
 			)
 		);
@@ -756,40 +831,19 @@ class Lumina_Agency_Hub {
 		return $data['result'];
 	}
 
+	private function normalize_oauth_token_payload( array $payload ) {
+		if ( ! empty( $payload['data'] ) && is_array( $payload['data'] ) ) {
+			$first = $payload['data'][0] ?? array();
+			if ( is_array( $first ) ) {
+				return array_merge( $payload, $first );
+			}
+		}
+
+		return $payload;
+	}
+
 	private function remote_post( $url, array $payload ) {
-		$body = http_build_query( $payload );
-		$context = stream_context_create(
-			array(
-				'http' => array(
-					'method'  => 'POST',
-					'timeout' => 20,
-					'header'  => "Content-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n",
-					'content' => $body,
-				),
-			)
-		);
-
-		$response = @file_get_contents( $url, false, $context );
-
-		if ( false === $response ) {
-			return array( 'error' => 'Instagram OAuth request failed.', 'code' => 502 );
-		}
-
-		$data = json_decode( $response, true );
-
-		if ( ! is_array( $data ) ) {
-			return array( 'error' => 'Invalid Instagram OAuth response.', 'code' => 502 );
-		}
-
-		if ( ! empty( $data['error_message'] ) ) {
-			return array( 'error' => (string) $data['error_message'], 'code' => 400 );
-		}
-
-		if ( ! empty( $data['error']['message'] ) ) {
-			return array( 'error' => (string) $data['error']['message'], 'code' => 400 );
-		}
-
-		return $data;
+		return $this->http_request( 'POST', $url, $payload );
 	}
 
 	private function json( $payload, $status = 200 ) {

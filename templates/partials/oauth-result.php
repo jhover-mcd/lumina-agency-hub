@@ -34,6 +34,9 @@ $config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( 
 		<?php if ( ! empty( $oauth_result['expires_in'] ) ) : ?>
 			<p class="description">Expires in <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. Set a reminder to reconnect before it lapses.</p>
 		<?php endif; ?>
+		<?php if ( ! empty( $oauth_result['token_note'] ) ) : ?>
+			<p class="description"><?php echo htmlspecialchars( (string) $oauth_result['token_note'], ENT_QUOTES, 'UTF-8' ); ?></p>
+		<?php endif; ?>
 	</div>
 
 	<div class="lumina-hub-field">

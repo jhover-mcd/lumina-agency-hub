@@ -77,8 +77,9 @@ Each client site only needs the **license key** entered in **Lumina Instagram â†
 3. Upload the `agency-hub/` folder to the server, e.g. `/var/www/lumina-agency-hub/`.
 4. Set the vhost document root to `/var/www/lumina-agency-hub/public`.
 5. Create `config.php` and `licenses.json` on the server with production values.
-6. Ensure `cache/` is writable by the web server user: `chown -R www-data:www-data cache`.
-7. Update `LUMINA_IG_AGENCY_HUB_URL` in the WordPress plugin before distributing to clients.
+6. Install outbound HTTPS support: `sudo apt install -y php-curl ca-certificates`
+7. Ensure `cache/` is writable by the web server user: `chown -R www-data:www-data cache`.
+8. Update `LUMINA_IG_AGENCY_HUB_URL` in the WordPress plugin before distributing to clients.
 
 ### Apache example
 
