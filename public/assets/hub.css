@@ -142,6 +142,28 @@ a {
 	font-size: 18px;
 }
 
+.lumina-hub-card--success {
+	border-color: #bbf7d0;
+	background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.lumina-hub-card .description {
+	margin: 0 0 12px;
+	color: var(--lumina-muted);
+	line-height: 1.6;
+}
+
+.lumina-hub-list {
+	margin: 0 0 12px 18px;
+	color: var(--lumina-muted);
+}
+
+.lumina-hub-oauth-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 12px;
+}
+
 .lumina-hub-card--narrow {
 	width: min(420px, 100%);
 	margin-inline: auto;
@@ -159,13 +181,19 @@ a {
 }
 
 .lumina-hub-field input[type="text"],
-.lumina-hub-field input[type="password"] {
+.lumina-hub-field input[type="password"],
+.lumina-hub-field textarea {
 	width: 100%;
 	padding: 11px 12px;
 	border: 1px solid var(--lumina-border);
 	border-radius: 10px;
 	font: inherit;
 	background: #fff;
+}
+
+.lumina-hub-field textarea {
+	min-height: 96px;
+	resize: vertical;
 }
 
 .lumina-hub-field input:focus {

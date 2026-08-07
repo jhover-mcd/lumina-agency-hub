@@ -17,10 +17,24 @@ Open `/manage` on your hub domain and sign in with the admin password from `conf
 
 From there you can:
 
+- **Connect Instagram accounts** via OAuth (`/oauth/start`) to get a long-lived token and User ID
 - Add a license key per client site
 - Assign any Instagram User ID to each license
 - **Revoke** a license to cut the feed remotely
 - Change the Instagram User ID without touching the client site
+
+## Instagram OAuth setup
+
+1. In `config.php`, set `instagram_app_id`, `instagram_app_secret`, and `hub_public_url`.
+2. In Meta App Dashboard → Instagram → **API setup with Instagram login** → Business login settings, add this redirect URI:
+
+   `https://your-hub-domain.com/oauth/callback`
+
+   It must match `hub_public_url` + `/oauth/callback` exactly.
+3. Sign in to `/manage` and click **Connect Instagram account**.
+4. The client (or you) authorizes on Instagram. You are redirected back with a long-lived token and User ID to paste into `config.php` and the license row.
+
+Use scope **`instagram_business_basic`** only for feed reads. In Development mode, add the Instagram account as an app tester first. For production clients, submit App Review and switch the app to Live mode.
 
 ## API Endpoints
 

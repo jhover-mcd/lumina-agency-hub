@@ -40,6 +40,14 @@ class Lumina_Agency_Hub {
 			$this->handle_manage_post();
 		}
 
+		if ( '/oauth/start' === $path ) {
+			$this->handle_oauth_start();
+		}
+
+		if ( '/oauth/callback' === $path ) {
+			$this->handle_oauth_callback();
+		}
+
 		if ( '/manage' === $path ) {
 			$this->render_manage_page();
 			exit;
@@ -360,14 +368,29 @@ class Lumina_Agency_Hub {
 			return;
 		}
 
+		$oauth_result = null;
+		$oauth_error  = '';
+
+		if ( ! empty( $_GET['oauth_done'] ) ) {
+			$oauth_result = $this->consume_oauth_result( (string) $_GET['oauth_done'] );
+
+			if ( null === $oauth_result ) {
+				$oauth_error = 'OAuth result expired or was already viewed. Run Instagram connect again.';
+			}
+		}
+
 		$this->render_template(
 			'manage.php',
 			array(
-				'page_title'   => 'Manage Licenses',
-				'page_heading' => 'License control center',
-				'page_intro'   => 'Manage client site licenses, assign Instagram User IDs, and revoke feeds remotely.',
-				'licenses'     => $this->licenses,
-				'demo_mode'    => ! empty( $this->config['demo_mode'] ),
+				'page_title'    => 'Manage Licenses',
+				'page_heading'  => 'License control center',
+				'page_intro'    => 'Manage client site licenses, assign Instagram User IDs, and revoke feeds remotely.',
+				'licenses'      => $this->licenses,
+				'demo_mode'     => ! empty( $this->config['demo_mode'] ),
+				'oauth_ready'   => $this->is_oauth_configured(),
+				'oauth_result'  => $oauth_result,
+				'oauth_error'   => $oauth_error,
+				'oauth_redirect_uri' => $this->get_oauth_redirect_uri(),
 			)
 		);
 	}
@@ -487,6 +510,261 @@ class Lumina_Agency_Hub {
 			'error'   => $message,
 			'code'    => $code,
 		);
+	}
+
+	private function is_oauth_configured() {
+		return ! empty( $this->config['instagram_app_id'] )
+			&& ! empty( $this->config['instagram_app_secret'] )
+			&& ! empty( $this->get_hub_public_url() );
+	}
+
+	private function get_hub_public_url() {
+		if ( ! empty( $this->config['hub_public_url'] ) ) {
+			return rtrim( (string) $this->config['hub_public_url'], '/' );
+		}
+
+		$scheme = $this->is_https() ? 'https' : 'http';
+		$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+
+		return $scheme . '://' . $host;
+	}
+
+	private function get_oauth_redirect_uri() {
+		return $this->get_hub_public_url() . '/oauth/callback';
+	}
+
+	private function handle_oauth_start() {
+		if ( ! $this->is_admin_authenticated() ) {
+			$this->redirect_manage( 'login_error=1' );
+		}
+
+		if ( ! $this->is_oauth_configured() ) {
+			$this->redirect_manage( 'oauth_config_error=1' );
+		}
+
+		$state = bin2hex( random_bytes( 16 ) );
+		$this->store_oauth_state( $state );
+
+		$params = array(
+			'client_id'     => (string) $this->config['instagram_app_id'],
+			'redirect_uri'  => $this->get_oauth_redirect_uri(),
+			'response_type' => 'code',
+			'scope'         => 'instagram_business_basic',
+			'state'         => $state,
+		);
+
+		$url = 'https://www.instagram.com/oauth/authorize?' . http_build_query( $params );
+		$this->redirect( $url );
+	}
+
+	private function handle_oauth_callback() {
+		if ( ! $this->is_oauth_configured() ) {
+			$this->redirect_manage( 'oauth_config_error=1' );
+		}
+
+		if ( ! empty( $_GET['error'] ) ) {
+			$message = trim( (string) ( $_GET['error_description'] ?? $_GET['error'] ) );
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( $message ) );
+		}
+
+		$code  = trim( (string) ( $_GET['code'] ?? '' ) );
+		$state = trim( (string) ( $_GET['state'] ?? '' ) );
+
+		if ( '' === $code || '' === $state ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Missing authorization code or state.' ) );
+		}
+
+		if ( ! $this->validate_oauth_state( $state ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Invalid or expired OAuth state. Start again from /manage.' ) );
+		}
+
+		$code = preg_replace( '/#_.*$/', '', $code );
+
+		$short = $this->remote_post(
+			'https://api.instagram.com/oauth/access_token',
+			array(
+				'client_id'     => (string) $this->config['instagram_app_id'],
+				'client_secret' => (string) $this->config['instagram_app_secret'],
+				'grant_type'    => 'authorization_code',
+				'redirect_uri'  => $this->get_oauth_redirect_uri(),
+				'code'          => $code,
+			)
+		);
+
+		if ( isset( $short['error'] ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $short['error'] ) );
+		}
+
+		$short_token = (string) ( $short['access_token'] ?? '' );
+		$user_id     = (string) ( $short['user_id'] ?? '' );
+
+		if ( '' === $short_token ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Instagram did not return an access token.' ) );
+		}
+
+		$long = $this->remote_get(
+			'https://graph.instagram.com/access_token?' . http_build_query(
+				array(
+					'grant_type'    => 'ig_exchange_token',
+					'client_secret' => (string) $this->config['instagram_app_secret'],
+					'access_token'  => $short_token,
+				)
+			)
+		);
+
+		if ( isset( $long['error'] ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $long['error'] ) );
+		}
+
+		$access_token = (string) ( $long['access_token'] ?? $short_token );
+		$expires_in   = (int) ( $long['expires_in'] ?? 0 );
+
+		$profile = $this->remote_get(
+			'https://graph.instagram.com/me?' . http_build_query(
+				array(
+					'fields'       => 'id,username,account_type',
+					'access_token' => $access_token,
+				)
+			)
+		);
+
+		if ( isset( $profile['error'] ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( (string) $profile['error'] ) );
+		}
+
+		if ( '' === $user_id && ! empty( $profile['id'] ) ) {
+			$user_id = (string) $profile['id'];
+		}
+
+		$this->delete_oauth_state( $state );
+		$this->store_oauth_result(
+			$state,
+			array(
+				'user_id'      => $user_id,
+				'username'     => (string) ( $profile['username'] ?? '' ),
+				'account_type' => (string) ( $profile['account_type'] ?? '' ),
+				'access_token' => $access_token,
+				'expires_in'   => $expires_in,
+				'connected_at' => gmdate( 'c' ),
+			)
+		);
+
+		$this->redirect_manage( 'oauth_done=' . rawurlencode( $state ) );
+	}
+
+	private function oauth_cache_dir() {
+		$dir = __DIR__ . '/../cache/oauth';
+
+		if ( ! is_dir( $dir ) ) {
+			mkdir( $dir, 0755, true );
+		}
+
+		return $dir;
+	}
+
+	private function store_oauth_state( $state ) {
+		$file = $this->oauth_cache_dir() . '/state_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+		file_put_contents(
+			$file,
+			json_encode(
+				array(
+					'created_at' => time(),
+					'expires_at' => time() + 600,
+				)
+			)
+		);
+	}
+
+	private function validate_oauth_state( $state ) {
+		$file = $this->oauth_cache_dir() . '/state_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+
+		if ( ! file_exists( $file ) ) {
+			return false;
+		}
+
+		$data = json_decode( (string) file_get_contents( $file ), true );
+
+		if ( empty( $data['expires_at'] ) || time() > (int) $data['expires_at'] ) {
+			@unlink( $file );
+			return false;
+		}
+
+		return true;
+	}
+
+	private function delete_oauth_state( $state ) {
+		$file = $this->oauth_cache_dir() . '/state_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+
+		if ( file_exists( $file ) ) {
+			@unlink( $file );
+		}
+	}
+
+	private function store_oauth_result( $state, array $result ) {
+		$file = $this->oauth_cache_dir() . '/result_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+		file_put_contents(
+			$file,
+			json_encode(
+				array(
+					'created_at' => time(),
+					'expires_at' => time() + 900,
+					'result'     => $result,
+				)
+			)
+		);
+	}
+
+	private function consume_oauth_result( $state ) {
+		$file = $this->oauth_cache_dir() . '/result_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+
+		if ( ! file_exists( $file ) ) {
+			return null;
+		}
+
+		$data = json_decode( (string) file_get_contents( $file ), true );
+		@unlink( $file );
+
+		if ( empty( $data['result'] ) || empty( $data['expires_at'] ) || time() > (int) $data['expires_at'] ) {
+			return null;
+		}
+
+		return $data['result'];
+	}
+
+	private function remote_post( $url, array $payload ) {
+		$body = http_build_query( $payload );
+		$context = stream_context_create(
+			array(
+				'http' => array(
+					'method'  => 'POST',
+					'timeout' => 20,
+					'header'  => "Content-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n",
+					'content' => $body,
+				),
+			)
+		);
+
+		$response = @file_get_contents( $url, false, $context );
+
+		if ( false === $response ) {
+			return array( 'error' => 'Instagram OAuth request failed.', 'code' => 502 );
+		}
+
+		$data = json_decode( $response, true );
+
+		if ( ! is_array( $data ) ) {
+			return array( 'error' => 'Invalid Instagram OAuth response.', 'code' => 502 );
+		}
+
+		if ( ! empty( $data['error_message'] ) ) {
+			return array( 'error' => (string) $data['error_message'], 'code' => 400 );
+		}
+
+		if ( ! empty( $data['error']['message'] ) ) {
+			return array( 'error' => (string) $data['error']['message'], 'code' => 400 );
+		}
+
+		return $data;
 	}
 
 	private function json( $payload, $status = 200 ) {

@@ -4,6 +4,10 @@
  *
  * @var array $licenses License map.
  * @var bool  $demo_mode Whether demo mode is enabled.
+ * @var bool  $oauth_ready Whether Instagram OAuth is configured.
+ * @var array|null $oauth_result OAuth connection result to display once.
+ * @var string $oauth_error OAuth error message.
+ * @var string $oauth_redirect_uri Registered redirect URI.
  */
 
 defined( 'LUMINA_HUB_RENDER' ) || exit;
@@ -24,6 +28,30 @@ foreach ( $licenses as $license ) {
 <?php if ( ! empty( $_GET['added'] ) ) : ?><div class="lumina-hub-notice">License added.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['updated'] ) ) : ?><div class="lumina-hub-notice">Instagram User ID updated.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['csrf_error'] ) ) : ?><div class="lumina-hub-error">Your session expired. Please try again.</div><?php endif; ?>
+<?php if ( ! empty( $_GET['oauth_config_error'] ) ) : ?><div class="lumina-hub-error">Add <code>instagram_app_id</code>, <code>instagram_app_secret</code>, and <code>hub_public_url</code> to <code>config.php</code> before connecting Instagram.</div><?php endif; ?>
+<?php if ( ! empty( $_GET['oauth_error'] ) ) : ?><div class="lumina-hub-error"><?php echo htmlspecialchars( (string) $_GET['oauth_error'], ENT_QUOTES, 'UTF-8' ); ?></div><?php endif; ?>
+<?php if ( ! empty( $oauth_error ) ) : ?><div class="lumina-hub-error"><?php echo htmlspecialchars( $oauth_error, ENT_QUOTES, 'UTF-8' ); ?></div><?php endif; ?>
+
+<?php if ( ! empty( $oauth_result ) ) : ?>
+	<?php include __DIR__ . '/partials/oauth-result.php'; ?>
+<?php endif; ?>
+
+<div class="lumina-hub-card">
+	<h2>Connect Instagram account</h2>
+	<?php if ( ! empty( $oauth_ready ) ) : ?>
+		<p class="description">Use this when onboarding a client Instagram Business or Creator account. The client can log in on Instagram’s screen; you’ll get a long-lived token and User ID to paste into <code>config.php</code> and the license below.</p>
+		<p class="description"><strong>Redirect URI</strong> (must match Meta App Dashboard exactly):<br /><code class="lumina-hub-code"><?php echo htmlspecialchars( $oauth_redirect_uri, ENT_QUOTES, 'UTF-8' ); ?></code></p>
+		<p class="description">In Meta App Dashboard → Instagram → API setup with Instagram login → Business login settings, add that URI under OAuth redirect URIs.</p>
+		<a class="lumina-hub-btn" href="/oauth/start">Connect Instagram account</a>
+	<?php else : ?>
+		<p class="description">Add your Instagram app credentials to <code>config.php</code> to enable the connect flow:</p>
+		<ul class="lumina-hub-list">
+			<li><code>instagram_app_id</code></li>
+			<li><code>instagram_app_secret</code></li>
+			<li><code>hub_public_url</code> (e.g. https://lumina.mcddigital.biz)</li>
+		</ul>
+	<?php endif; ?>
+</div>
 
 <div class="lumina-hub-stats">
 	<div class="lumina-hub-stat">
