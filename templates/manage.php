@@ -149,7 +149,7 @@ foreach ( $licenses as $license ) {
 			<input type="text" id="label" name="label" placeholder="Client site name" />
 		</div>
 		<div class="lumina-hub-field">
-			<label for="user_id">Instagram User ID</label>
+			<label for="user_id">Instagram Professional Account ID</label>
 			<input type="text" id="user_id" name="user_id" required placeholder="17841400000000000" />
 		</div>
 		<button type="submit" class="lumina-hub-btn">Add license</button>

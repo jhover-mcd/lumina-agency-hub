@@ -79,6 +79,13 @@ class Lumina_Agency_Hub {
 			return array( 'error' => 'No Instagram User ID is assigned to this license.', 'code' => 422 );
 		}
 
+		if ( empty( $this->config['demo_mode'] ) ) {
+			$user_check = $this->validate_license_user_id( $license );
+			if ( null !== $user_check ) {
+				return $user_check;
+			}
+		}
+
 		return $license;
 	}
 
@@ -187,7 +194,9 @@ class Lumina_Agency_Hub {
 	}
 
 	private function fetch_instagram_media( $user_id, $limit ) {
-		$url = 'https://graph.instagram.com/' . rawurlencode( $user_id ) . '/media?' . http_build_query(
+		unset( $user_id );
+
+		$url = 'https://graph.instagram.com/me/media?' . http_build_query(
 			array(
 				'fields'       => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
 				'limit'        => $limit,
@@ -227,14 +236,58 @@ class Lumina_Agency_Hub {
 	}
 
 	private function fetch_instagram_profile( $user_id ) {
-		$url = 'https://graph.instagram.com/' . rawurlencode( $user_id ) . '?' . http_build_query(
+		unset( $user_id );
+
+		return $this->fetch_instagram_profile_for_token();
+	}
+
+	private function fetch_instagram_profile_for_token() {
+		$url = 'https://graph.instagram.com/me?' . http_build_query(
 			array(
-				'fields'       => 'id,username,account_type,media_count',
+				'fields'       => 'user_id,username,account_type,media_count',
 				'access_token' => $this->config['instagram_access_token'],
 			)
 		);
 
-		return $this->remote_get( $url );
+		$profile = $this->remote_get( $url );
+
+		return $this->normalize_instagram_profile( $profile );
+	}
+
+	private function normalize_instagram_profile( $profile ) {
+		if ( ! is_array( $profile ) || isset( $profile['error'] ) ) {
+			return $profile;
+		}
+
+		if ( ! empty( $profile['user_id'] ) ) {
+			$profile['id'] = (string) $profile['user_id'];
+		}
+
+		return $profile;
+	}
+
+	private function validate_license_user_id( $license ) {
+		$profile = $this->fetch_instagram_profile_for_token();
+
+		if ( isset( $profile['error'] ) ) {
+			return null;
+		}
+
+		$token_user_id    = (string) ( $profile['user_id'] ?? $profile['id'] ?? '' );
+		$license_user_id  = (string) ( $license['user_id'] ?? '' );
+
+		if ( '' === $token_user_id || '' === $license_user_id ) {
+			return null;
+		}
+
+		if ( $token_user_id !== $license_user_id ) {
+			return array(
+				'error' => 'License User ID does not match the Instagram account for this token. Update the license to use User ID ' . $token_user_id . '.',
+				'code'  => 422,
+			);
+		}
+
+		return null;
 	}
 
 	private function remote_get( $url ) {
@@ -713,11 +766,13 @@ class Lumina_Agency_Hub {
 		$profile = $this->remote_get(
 			'https://graph.instagram.com/me?' . http_build_query(
 				array(
-					'fields'       => 'id,username,account_type',
+					'fields'       => 'user_id,username,account_type',
 					'access_token' => $access_token,
 				)
 			)
 		);
+
+		$profile = $this->normalize_instagram_profile( $profile );
 
 		$username     = '';
 		$account_type = '';
@@ -730,7 +785,9 @@ class Lumina_Agency_Hub {
 			$username     = (string) ( $profile['username'] ?? '' );
 			$account_type = (string) ( $profile['account_type'] ?? '' );
 
-			if ( '' === $user_id && ! empty( $profile['id'] ) ) {
+			if ( ! empty( $profile['user_id'] ) ) {
+				$user_id = (string) $profile['user_id'];
+			} elseif ( '' === $user_id && ! empty( $profile['id'] ) ) {
 				$user_id = (string) $profile['id'];
 			}
 		}

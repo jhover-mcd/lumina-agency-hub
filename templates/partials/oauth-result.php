@@ -15,8 +15,9 @@ $config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( 
 
 	<div class="lumina-hub-oauth-grid">
 		<div class="lumina-hub-field">
-			<label>Instagram User ID</label>
+			<label>Instagram Professional Account ID</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $oauth_result['user_id'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
+			<p class="description">Use this on the license row — not the shorter app-scoped ID from older OAuth responses.</p>
 		</div>
 		<div class="lumina-hub-field">
 			<label>Username</label>
