@@ -4,8 +4,8 @@
  */
 
 return array(
-	// Your single agency Instagram Graph API access token.
-	'instagram_access_token' => 'YOUR_LONG_LIVED_TOKEN',
+	// Optional legacy fallback token for licenses without their own access_token.
+	'instagram_access_token' => '',
 
 	// Instagram app credentials (Meta App Dashboard → Instagram → API setup with Instagram login).
 	'instagram_app_id'     => 'YOUR_INSTAGRAM_APP_ID',

@@ -8,7 +8,8 @@
  * @var array|null $oauth_result OAuth connection result to display once.
  * @var string $oauth_error OAuth error message.
  * @var string $oauth_redirect_uri Registered redirect URI.
- * @var array|null $token_account Live lookup from config token.
+ * @var array|null $token_account Live lookup from legacy config token.
+ * @var array $license_accounts Connected account lookup per license key.
  */
 
 defined( 'LUMINA_HUB_RENDER' ) || exit;
@@ -38,12 +39,11 @@ foreach ( $licenses as $license ) {
 <?php endif; ?>
 
 <div class="lumina-hub-card">
-	<h2>Connect Instagram account</h2>
+	<h2>Connect Instagram per client</h2>
 	<?php if ( ! empty( $oauth_ready ) ) : ?>
-		<p class="description">Use this when onboarding a client Instagram Business or Creator account. The client can log in on Instagram’s screen; you’ll get a long-lived token and User ID to paste into <code>config.php</code> and the license below.</p>
+		<p class="description">Each client site needs its own Instagram token. In the table below, click <strong>Connect Instagram</strong> on the client row, log in with that client’s Instagram Business or Creator account, and the hub saves the token to that license automatically.</p>
 		<p class="description"><strong>Redirect URI</strong> (must match Meta App Dashboard exactly):<br /><code class="lumina-hub-code"><?php echo htmlspecialchars( $oauth_redirect_uri, ENT_QUOTES, 'UTF-8' ); ?></code></p>
 		<p class="description">In Meta App Dashboard → Instagram → API setup with Instagram login → Business login settings, add that URI under OAuth redirect URIs.</p>
-		<a class="lumina-hub-btn" href="/oauth/start">Connect Instagram account</a>
 	<?php else : ?>
 		<p class="description">Add your Instagram app credentials to <code>config.php</code> to enable the connect flow:</p>
 		<ul class="lumina-hub-list">
@@ -56,33 +56,23 @@ foreach ( $licenses as $license ) {
 
 <?php if ( ! empty( $token_account ) && empty( $token_account['error'] ) ) : ?>
 <div class="lumina-hub-card">
-	<h2>Current token account</h2>
-	<p class="description">This is read live from the access token in <code>config.php</code>. Paste the License User ID into each license row exactly as shown here.</p>
+	<h2>Legacy fallback token</h2>
+	<p class="description">This is the access token in <code>config.php</code>. It is only used when a license row does not have its own token yet. For multiple clients, connect each row separately instead of relying on this global token.</p>
 	<div class="lumina-hub-oauth-grid">
 		<div class="lumina-hub-field">
-			<label>License User ID</label>
+			<label>User ID</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['user_id'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
 		</div>
 		<div class="lumina-hub-field">
 			<label>Username</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['username'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
 		</div>
-		<div class="lumina-hub-field">
-			<label>Account type</label>
-			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $token_account['account_type'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
-		</div>
 	</div>
-	<p class="description">Instagram Login IDs often start with <code>2808…</code> instead of <code>178414…</code>. That is normal. The hub now loads media via <code>/me/media</code>, not by calling the numeric ID directly.</p>
 </div>
 <?php elseif ( ! empty( $token_account['error'] ) ) : ?>
 <div class="lumina-hub-error">
-	<p><strong>Could not read the current token account:</strong> <?php echo htmlspecialchars( (string) $token_account['error'], ENT_QUOTES, 'UTF-8' ); ?></p>
-	<p class="description">This usually means the access token in <code>config.php</code> is expired, was pasted incorrectly, or your Meta app does not yet have <strong>Advanced Access</strong> for <code>instagram_business_basic</code>.</p>
-	<ul class="lumina-hub-list">
-		<li>Run <strong>Connect Instagram account</strong> again and paste the new token into <code>config.php</code>.</li>
-		<li>In Meta App Dashboard → <strong>App Review → Permissions and Features</strong>, set <code>instagram_business_basic</code> to Advanced Access / Ready to publish.</li>
-		<li>Confirm Business Verification is complete for the app owner.</li>
-	</ul>
+	<p><strong>Could not read the legacy fallback token:</strong> <?php echo htmlspecialchars( (string) $token_account['error'], ENT_QUOTES, 'UTF-8' ); ?></p>
+	<p class="description">Connect Instagram on each client row below, or paste a fresh token into <code>config.php</code> if you still use the legacy fallback.</p>
 </div>
 <?php endif; ?>
 
@@ -112,6 +102,7 @@ foreach ( $licenses as $license ) {
 			<tr>
 				<th>License key</th>
 				<th>Label</th>
+				<th>Instagram</th>
 				<th>Instagram User ID</th>
 				<th>Status</th>
 				<th>Actions</th>
@@ -120,13 +111,30 @@ foreach ( $licenses as $license ) {
 		<tbody>
 			<?php if ( empty( $licenses ) ) : ?>
 				<tr>
-					<td colspan="5">No licenses yet. Add your first client site below.</td>
+					<td colspan="6">No licenses yet. Add your first client site below.</td>
 				</tr>
 			<?php endif; ?>
 			<?php foreach ( $licenses as $key => $license ) : ?>
+				<?php
+				$has_token = ! empty( $license['access_token'] );
+				$connected = $license_accounts[ $key ] ?? null;
+				?>
 				<tr>
 					<td><code class="lumina-hub-code"><?php echo htmlspecialchars( $key, ENT_QUOTES, 'UTF-8' ); ?></code></td>
 					<td><?php echo htmlspecialchars( $license['label'] ?? '', ENT_QUOTES, 'UTF-8' ); ?></td>
+					<td>
+						<?php if ( $has_token && ! empty( $connected['username'] ) ) : ?>
+							<strong>@<?php echo htmlspecialchars( (string) $connected['username'], ENT_QUOTES, 'UTF-8' ); ?></strong>
+							<p class="description">Connected</p>
+						<?php elseif ( $has_token ) : ?>
+							<span class="lumina-hub-badge lumina-hub-badge--active">Token saved</span>
+						<?php else : ?>
+							<span class="lumina-hub-badge lumina-hub-badge--revoked">Not connected</span>
+						<?php endif; ?>
+						<?php if ( ! empty( $oauth_ready ) ) : ?>
+							<p><a class="lumina-hub-btn lumina-hub-btn--dark" href="/oauth/start?license_key=<?php echo rawurlencode( $key ); ?>"><?php echo $has_token ? 'Reconnect Instagram' : 'Connect Instagram'; ?></a></p>
+						<?php endif; ?>
+					</td>
 					<td>
 						<form method="post" action="/manage">
 							<?php include __DIR__ . '/partials/csrf.php'; ?>
@@ -137,6 +145,7 @@ foreach ( $licenses as $license ) {
 							</div>
 							<button type="submit" class="lumina-hub-btn lumina-hub-btn--dark">Update ID</button>
 						</form>
+						<p class="description">Auto-filled when you connect Instagram on this row.</p>
 					</td>
 					<td>
 						<?php if ( ! empty( $license['active'] ) ) : ?>
@@ -183,8 +192,9 @@ foreach ( $licenses as $license ) {
 		</div>
 		<div class="lumina-hub-field">
 			<label for="user_id">License User ID</label>
-			<input type="text" id="user_id" name="user_id" required placeholder="28080537801582012" />
+			<input type="text" id="user_id" name="user_id" placeholder="Filled automatically after Connect Instagram" />
 		</div>
 		<button type="submit" class="lumina-hub-btn">Add license</button>
+		<p class="description">You can leave User ID blank and click Connect Instagram on the new row after saving.</p>
 	</form>
 </div>

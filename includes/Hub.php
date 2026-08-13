@@ -22,7 +22,7 @@ class Lumina_Agency_Hub {
 				array(
 					'status'    => 'ok',
 					'service'   => 'lumina-agency-hub',
-					'hub_build' => '2026-08-07-unversioned-graph',
+					'hub_build' => '2026-08-13-per-license-tokens',
 					'demo'      => ! empty( $this->config['demo_mode'] ),
 				)
 			);
@@ -109,13 +109,13 @@ class Lumina_Agency_Hub {
 			$items   = $this->demo_media( $license, $limit );
 			$profile = $this->demo_profile( $license );
 		} else {
-			$items = $this->fetch_instagram_media( $license['user_id'], $limit );
+			$items = $this->fetch_instagram_media_for_license( $license, $limit );
 
 			if ( isset( $items['error'] ) ) {
 				return $this->error_payload( $items['error'], $items['code'] ?? 500 );
 			}
 
-			$profile = $this->fetch_instagram_profile( $license['user_id'] );
+			$profile = $this->fetch_instagram_profile_for_license( $license );
 
 			if ( isset( $profile['error'] ) ) {
 				return $this->error_payload( $profile['error'], $profile['code'] ?? 500 );
@@ -145,7 +145,7 @@ class Lumina_Agency_Hub {
 		if ( ! empty( $this->config['demo_mode'] ) ) {
 			$profile = $this->demo_profile( $license );
 		} else {
-			$profile = $this->fetch_instagram_profile( $license['user_id'] );
+			$profile = $this->fetch_instagram_profile_for_license( $license );
 
 			if ( isset( $profile['error'] ) ) {
 				return $this->error_payload( $profile['error'], $profile['code'] ?? 500 );
@@ -236,15 +236,51 @@ class Lumina_Agency_Hub {
 		);
 	}
 
-	private function fetch_instagram_media( $user_id, $limit ) {
-		unset( $user_id );
+	private function get_license_access_token( array $license ) {
+		if ( ! empty( $license['access_token'] ) ) {
+			return (string) $license['access_token'];
+		}
 
+		if ( ! empty( $this->config['instagram_access_token'] ) ) {
+			return (string) $this->config['instagram_access_token'];
+		}
+
+		return '';
+	}
+
+	private function fetch_instagram_media_for_license( array $license, $limit ) {
+		$token = $this->get_license_access_token( $license );
+
+		if ( '' === $token ) {
+			return array(
+				'error' => 'No Instagram token for this license. In /manage, click Connect Instagram on this client row.',
+				'code'  => 422,
+			);
+		}
+
+		return $this->fetch_instagram_media( $token, $limit );
+	}
+
+	private function fetch_instagram_profile_for_license( array $license ) {
+		$token = $this->get_license_access_token( $license );
+
+		if ( '' === $token ) {
+			return array(
+				'error' => 'No Instagram token for this license. In /manage, click Connect Instagram on this client row.',
+				'code'  => 422,
+			);
+		}
+
+		return $this->fetch_instagram_profile_for_token( $token );
+	}
+
+	private function fetch_instagram_media( $access_token, $limit ) {
 		$url = $this->instagram_graph_url(
 			'me/media',
 			array(
 				'fields'       => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
 				'limit'        => $limit,
-				'access_token' => $this->config['instagram_access_token'],
+				'access_token' => $access_token,
 			)
 		);
 
@@ -279,25 +315,29 @@ class Lumina_Agency_Hub {
 		return $items;
 	}
 
-	private function fetch_instagram_profile( $user_id ) {
-		unset( $user_id );
+	private function fetch_instagram_profile_for_token( $access_token ) {
+		$profile = $this->remote_get(
+			$this->instagram_graph_url(
+				'me',
+				array(
+					'fields'       => 'user_id,username,account_type,media_count,id',
+					'access_token' => $access_token,
+				)
+			)
+		);
 
-		return $this->fetch_instagram_profile_for_token();
-	}
+		$profile = $this->normalize_instagram_profile( $profile );
 
-	private function fetch_instagram_profile_for_token() {
-		$account = $this->resolve_account_from_token( (string) $this->config['instagram_access_token'] );
-
-		if ( isset( $account['error'] ) ) {
-			return $account;
+		if ( isset( $profile['error'] ) ) {
+			return $profile;
 		}
 
 		return array(
-			'id'           => $account['user_id'],
-			'user_id'      => $account['user_id'],
-			'username'     => $account['username'],
-			'account_type' => $account['account_type'],
-			'media_count'  => 0,
+			'id'           => $profile['user_id'] ?? $profile['id'] ?? '',
+			'user_id'      => $profile['user_id'] ?? $profile['id'] ?? '',
+			'username'     => $profile['username'] ?? '',
+			'account_type' => $profile['account_type'] ?? '',
+			'media_count'  => $profile['media_count'] ?? 0,
 		);
 	}
 
@@ -314,14 +354,26 @@ class Lumina_Agency_Hub {
 	}
 
 	private function validate_license_user_id( $license ) {
-		$profile = $this->fetch_instagram_profile_for_token();
+		$token = $this->get_license_access_token( $license );
 
-		if ( isset( $profile['error'] ) ) {
-			return null;
+		if ( '' === $token ) {
+			return array(
+				'error' => 'No Instagram token for this license. In /manage, click Connect Instagram on this client row.',
+				'code'  => 422,
+			);
 		}
 
-		$token_user_id    = (string) ( $profile['user_id'] ?? $profile['id'] ?? '' );
-		$license_user_id  = (string) ( $license['user_id'] ?? '' );
+		$account = $this->resolve_account_from_token( $token );
+
+		if ( isset( $account['error'] ) ) {
+			return array(
+				'error' => 'Could not verify this license token: ' . (string) $account['error'],
+				'code'  => 422,
+			);
+		}
+
+		$token_user_id   = (string) ( $account['user_id'] ?? '' );
+		$license_user_id = (string) ( $license['user_id'] ?? '' );
 
 		if ( '' === $token_user_id || '' === $license_user_id ) {
 			return null;
@@ -329,7 +381,7 @@ class Lumina_Agency_Hub {
 
 		if ( $token_user_id !== $license_user_id ) {
 			return array(
-				'error' => 'License User ID does not match the Instagram account for this token. In /manage, copy the "License User ID" from Current token account and paste it into this license.',
+				'error' => 'License User ID does not match this client\'s Instagram token. Click Connect Instagram on this client row, or update the license User ID to ' . $token_user_id . '.',
 				'code'  => 422,
 			);
 		}
@@ -553,19 +605,33 @@ class Lumina_Agency_Hub {
 			$token_account = $this->resolve_account_from_token( (string) $this->config['instagram_access_token'] );
 		}
 
+		$license_accounts = array();
+		foreach ( $this->licenses as $key => $license ) {
+			if ( empty( $license['access_token'] ) ) {
+				continue;
+			}
+
+			$account = $this->resolve_account_from_token( (string) $license['access_token'] );
+
+			if ( ! isset( $account['error'] ) ) {
+				$license_accounts[ $key ] = $account;
+			}
+		}
+
 		$this->render_template(
 			'manage.php',
 			array(
-				'page_title'    => 'Manage Licenses',
-				'page_heading'  => 'License control center',
-				'page_intro'    => 'Manage client site licenses, assign Instagram User IDs, and revoke feeds remotely.',
-				'licenses'      => $this->licenses,
-				'demo_mode'     => ! empty( $this->config['demo_mode'] ),
-				'oauth_ready'   => $this->is_oauth_configured(),
-				'oauth_result'  => $oauth_result,
-				'oauth_error'   => $oauth_error,
+				'page_title'         => 'Manage Licenses',
+				'page_heading'       => 'License control center',
+				'page_intro'         => 'Manage client site licenses, connect each client Instagram account, and revoke feeds remotely.',
+				'licenses'           => $this->licenses,
+				'demo_mode'          => ! empty( $this->config['demo_mode'] ),
+				'oauth_ready'        => $this->is_oauth_configured(),
+				'oauth_result'       => $oauth_result,
+				'oauth_error'        => $oauth_error,
 				'oauth_redirect_uri' => $this->get_oauth_redirect_uri(),
-				'token_account' => $token_account,
+				'token_account'      => $token_account,
+				'license_accounts'   => $license_accounts,
 			)
 		);
 	}
@@ -736,7 +802,13 @@ class Lumina_Agency_Hub {
 		}
 
 		$state = bin2hex( random_bytes( 16 ) );
-		$this->store_oauth_state( $state );
+		$license_key = trim( (string) ( $_GET['license_key'] ?? '' ) );
+
+		if ( '' !== $license_key && ! isset( $this->licenses[ $license_key ] ) ) {
+			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Unknown license key.' ) );
+		}
+
+		$this->store_oauth_state( $state, $license_key );
 
 		$params = array(
 			'client_id'     => (string) $this->config['instagram_app_id'],
@@ -770,6 +842,9 @@ class Lumina_Agency_Hub {
 		if ( ! $this->validate_oauth_state( $state ) ) {
 			$this->redirect_manage( 'oauth_error=' . rawurlencode( 'Invalid or expired OAuth state. Start again from /manage.' ) );
 		}
+
+		$oauth_state = $this->read_oauth_state( $state );
+		$license_key   = trim( (string) ( $oauth_state['license_key'] ?? '' ) );
 
 		$code = preg_replace( '/#_.*$/', '', $code );
 
@@ -825,18 +900,34 @@ class Lumina_Agency_Hub {
 		$username     = (string) $account['username'];
 		$account_type = (string) $account['account_type'];
 
+		$saved_to_license = false;
+		$license_label    = '';
+
+		if ( '' !== $license_key && isset( $this->licenses[ $license_key ] ) ) {
+			$this->licenses[ $license_key ]['access_token']    = $access_token;
+			$this->licenses[ $license_key ]['user_id']         = $user_id;
+			$this->licenses[ $license_key ]['username']        = $username;
+			$this->licenses[ $license_key ]['token_updated_at'] = gmdate( 'c' );
+			$this->save_licenses();
+			$saved_to_license = true;
+			$license_label    = (string) ( $this->licenses[ $license_key ]['label'] ?? $license_key );
+		}
+
 		$this->delete_oauth_state( $state );
 		$this->store_oauth_result(
 			$state,
 			array(
-				'user_id'       => $user_id,
-				'username'      => $username,
-				'account_type'  => $account_type,
-				'app_scoped_id' => (string) ( $account['app_scoped_id'] ?? '' ),
-				'access_token'  => $access_token,
-				'expires_in'    => $expires_in,
-				'token_note'    => $token_note,
-				'connected_at'  => gmdate( 'c' ),
+				'user_id'            => $user_id,
+				'username'           => $username,
+				'account_type'       => $account_type,
+				'app_scoped_id'      => (string) ( $account['app_scoped_id'] ?? '' ),
+				'access_token'       => $access_token,
+				'expires_in'         => $expires_in,
+				'token_note'         => $token_note,
+				'connected_at'       => gmdate( 'c' ),
+				'license_key'        => $license_key,
+				'license_label'      => $license_label,
+				'saved_to_license'   => $saved_to_license,
 			)
 		);
 
@@ -853,17 +944,30 @@ class Lumina_Agency_Hub {
 		return $dir;
 	}
 
-	private function store_oauth_state( $state ) {
+	private function store_oauth_state( $state, $license_key = '' ) {
 		$file = $this->oauth_cache_dir() . '/state_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
 		file_put_contents(
 			$file,
 			json_encode(
 				array(
-					'created_at' => time(),
-					'expires_at' => time() + 600,
+					'created_at'  => time(),
+					'expires_at'  => time() + 600,
+					'license_key' => (string) $license_key,
 				)
 			)
 		);
+	}
+
+	private function read_oauth_state( $state ) {
+		$file = $this->oauth_cache_dir() . '/state_' . preg_replace( '/[^a-f0-9]/', '', (string) $state ) . '.json';
+
+		if ( ! file_exists( $file ) ) {
+			return array();
+		}
+
+		$data = json_decode( (string) file_get_contents( $file ), true );
+
+		return is_array( $data ) ? $data : array();
 	}
 
 	private function validate_oauth_state( $state ) {

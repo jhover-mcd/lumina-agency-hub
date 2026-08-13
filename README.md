@@ -1,12 +1,12 @@
 # Lumina Agency Hub
 
-Host this on **your** server. It holds the single Instagram access token and controls which client sites can receive feeds.
+Host this on **your** server. It holds Instagram access tokens per client license and controls which client sites can receive feeds.
 
 ## Setup
 
 1. Copy `config.example.php` to `config.php`
 2. Copy `licenses.example.json` to `licenses.json`
-3. Add your agency Instagram access token to `config.php`
+3. Add your Meta Instagram app credentials to `config.php`
 4. Point your web server document root to `agency-hub/public/`
 
 Keep `config.php` and `licenses.json` **outside** the public web root if possible, or ensure your server blocks direct access to parent directories.
@@ -17,9 +17,9 @@ Open `/manage` on your hub domain and sign in with the admin password from `conf
 
 From there you can:
 
-- **Connect Instagram accounts** via OAuth (`/oauth/start`) to get a long-lived token and User ID
+- **Connect Instagram per client** via OAuth from each license row in `/manage`
 - Add a license key per client site
-- Assign any Instagram User ID to each license
+- Each license stores its own Instagram token and User ID
 - **Revoke** a license to cut the feed remotely
 - Change the Instagram User ID without touching the client site
 
@@ -31,8 +31,11 @@ From there you can:
    `https://your-hub-domain.com/oauth/callback`
 
    It must match `hub_public_url` + `/oauth/callback` exactly.
-3. Sign in to `/manage` and click **Connect Instagram account**.
-4. The client (or you) authorizes on Instagram. You are redirected back with a long-lived token and User ID to paste into `config.php` and the license row.
+3. Sign in to `/manage`.
+4. In `/manage`, click **Connect Instagram** on the client row. The client (or you) authorizes on Instagram. The hub saves the long-lived token and User ID to that license automatically.
+5. Paste the license key into the WordPress plugin settings on the client site.
+
+`config.php` may still include a legacy `instagram_access_token` as a fallback for licenses that do not have their own token yet. For multiple clients, connect each row separately instead of relying on the global token.
 
 Use scope **`instagram_business_basic`** only for feed reads. In Development mode, add the Instagram account as an app tester first. For production clients, submit App Review and switch the app to Live mode.
 

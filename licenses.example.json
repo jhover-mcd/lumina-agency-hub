@@ -2,11 +2,17 @@
 	"client-a-site-key-abc123": {
 		"label": "Client A — Main Site",
 		"user_id": "17841400000000001",
+		"username": "client_a",
+		"access_token": "LONG_LIVED_TOKEN_SAVED_BY_OAUTH",
+		"token_updated_at": "2026-08-13T12:00:00+00:00",
 		"active": true
 	},
 	"client-b-site-key-def456": {
 		"label": "Client B — Homepage Feed",
-		"user_id": "17841400000000002",
+		"user_id": "28080537801582012",
+		"username": "client_b",
+		"access_token": "ANOTHER_CLIENT_TOKEN",
+		"token_updated_at": "2026-08-13T12:00:00+00:00",
 		"active": true
 	}
 }

@@ -7,17 +7,22 @@
 
 defined( 'LUMINA_HUB_RENDER' ) || exit;
 
-$config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( $oauth_result['access_token'] ?? '' ) . "',\n\t// ... keep your other config values ...\n);\n";
+$saved_to_license = ! empty( $oauth_result['saved_to_license'] );
+$license_label      = (string) ( $oauth_result['license_label'] ?? $oauth_result['license_key'] ?? '' );
 ?>
 <div class="lumina-hub-card lumina-hub-card--success">
 	<h2>Instagram connected</h2>
-	<p class="description">Copy these values into <code>config.php</code> and the client license in the table below. This page shows the token once — store it securely.</p>
+	<?php if ( $saved_to_license ) : ?>
+		<p class="description">The token and User ID were saved to <strong><?php echo htmlspecialchars( $license_label, ENT_QUOTES, 'UTF-8' ); ?></strong>. Paste the license key into the WordPress plugin settings and the feed should work immediately.</p>
+	<?php else : ?>
+		<p class="description">Copy the User ID into a license row, or start OAuth again from a specific client row so the token is saved automatically.</p>
+	<?php endif; ?>
 
 	<div class="lumina-hub-oauth-grid">
 		<div class="lumina-hub-field">
 			<label>License User ID</label>
 			<input type="text" readonly value="<?php echo htmlspecialchars( (string) ( $oauth_result['user_id'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?>" onclick="this.select();" />
-			<p class="description">Paste this exact value into the license row. IDs starting with <code>2808…</code> are normal for Instagram Login.</p>
+			<p class="description">IDs starting with <code>2808…</code> are normal for Instagram Login.</p>
 		</div>
 		<?php if ( ! empty( $oauth_result['app_scoped_id'] ) && $oauth_result['app_scoped_id'] !== ( $oauth_result['user_id'] ?? '' ) ) : ?>
 		<div class="lumina-hub-field">
@@ -35,6 +40,7 @@ $config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( 
 		</div>
 	</div>
 
+	<?php if ( ! $saved_to_license ) : ?>
 	<div class="lumina-hub-field">
 		<label>Long-lived access token (60 days)</label>
 		<textarea readonly rows="4" onclick="this.select();"><?php echo htmlspecialchars( (string) ( $oauth_result['access_token'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?></textarea>
@@ -45,9 +51,12 @@ $config_snippet = "<?php\n\nreturn array(\n\t'instagram_access_token' => '" . ( 
 			<p class="description"><?php echo htmlspecialchars( (string) $oauth_result['token_note'], ENT_QUOTES, 'UTF-8' ); ?></p>
 		<?php endif; ?>
 	</div>
-
-	<div class="lumina-hub-field">
-		<label><code>config.php</code> snippet</label>
-		<textarea readonly rows="6" onclick="this.select();"><?php echo htmlspecialchars( $config_snippet, ENT_QUOTES, 'UTF-8' ); ?></textarea>
-	</div>
+	<?php else : ?>
+		<?php if ( ! empty( $oauth_result['expires_in'] ) ) : ?>
+			<p class="description">Token expires in about <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. Reconnect from the client row before it lapses.</p>
+		<?php endif; ?>
+		<?php if ( ! empty( $oauth_result['token_note'] ) ) : ?>
+			<p class="description"><?php echo htmlspecialchars( (string) $oauth_result['token_note'], ENT_QUOTES, 'UTF-8' ); ?></p>
+		<?php endif; ?>
+	<?php endif; ?>
 </div>
