@@ -22,7 +22,7 @@ class Lumina_Agency_Hub {
 				array(
 					'status'    => 'ok',
 					'service'   => 'lumina-agency-hub',
-					'hub_build' => '2026-08-13-per-license-tokens',
+					'hub_build' => '2026-08-19-url-refresh',
 					'demo'      => ! empty( $this->config['demo_mode'] ),
 				)
 			);
@@ -34,6 +34,10 @@ class Lumina_Agency_Hub {
 
 		if ( '/v1/status' === $path ) {
 			$this->json( $this->get_status() );
+		}
+
+		if ( '/v1/refresh' === $path ) {
+			$this->json( $this->refresh_feed() );
 		}
 
 		if ( '/manage' === $path && 'POST' === ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) ) {
@@ -99,10 +103,14 @@ class Lumina_Agency_Hub {
 		}
 
 		$limit = min( 50, max( 1, (int) ( $_GET['limit'] ?? 12 ) ) );
-		$cache = $this->read_cache( $license_key, $limit );
+		$force_refresh = ! empty( $_GET['refresh'] ) && '1' === $_GET['refresh'];
 
-		if ( null !== $cache ) {
-			return $cache;
+		if ( ! $force_refresh ) {
+			$cache = $this->read_cache( $license_key, $limit );
+
+			if ( null !== $cache ) {
+				return $cache;
+			}
 		}
 
 		if ( ! empty( $this->config['demo_mode'] ) ) {
@@ -122,11 +130,58 @@ class Lumina_Agency_Hub {
 			}
 		}
 		$payload = array(
-			'active'   => true,
-			'user_id'  => $license['user_id'],
-			'label'    => $license['label'] ?? '',
-			'username' => $profile['username'] ?? '',
-			'items'    => $items,
+			'active'         => true,
+			'user_id'        => $license['user_id'],
+			'label'          => $license['label'] ?? '',
+			'username'       => $profile['username'] ?? '',
+			'items'          => $items,
+			'fetched_at'     => time(),
+			'fetched_at_iso' => gmdate( 'c' ),
+		);
+
+		$this->write_cache( $license_key, $limit, $payload );
+
+		return $payload;
+	}
+
+	private function refresh_feed() {
+		$license_key = $this->get_license_key();
+		$license     = $this->resolve_license( $license_key );
+
+		if ( isset( $license['error'] ) ) {
+			return $this->error_payload( $license['error'], $license['code'] );
+		}
+
+		$limit = min( 50, max( 1, (int) ( $_GET['limit'] ?? 12 ) ) );
+
+		$this->clear_cache( $license_key, $limit );
+
+		if ( ! empty( $this->config['demo_mode'] ) ) {
+			$items   = $this->demo_media( $license, $limit );
+			$profile = $this->demo_profile( $license );
+		} else {
+			$items = $this->fetch_instagram_media_for_license( $license, $limit );
+
+			if ( isset( $items['error'] ) ) {
+				return $this->error_payload( $items['error'], $items['code'] ?? 500 );
+			}
+
+			$profile = $this->fetch_instagram_profile_for_license( $license );
+
+			if ( isset( $profile['error'] ) ) {
+				return $this->error_payload( $profile['error'], $profile['code'] ?? 500 );
+			}
+		}
+
+		$payload = array(
+			'active'         => true,
+			'user_id'        => $license['user_id'],
+			'label'          => $license['label'] ?? '',
+			'username'       => $profile['username'] ?? '',
+			'items'          => $items,
+			'fetched_at'     => time(),
+			'fetched_at_iso' => gmdate( 'c' ),
+			'refreshed'      => true,
 		);
 
 		$this->write_cache( $license_key, $limit, $payload );
@@ -516,6 +571,14 @@ class Lumina_Agency_Hub {
 				)
 			)
 		);
+	}
+
+	private function clear_cache( $license_key, $limit ) {
+		$file = $this->cache_file( $license_key, $limit );
+
+		if ( file_exists( $file ) ) {
+			@unlink( $file );
+		}
 	}
 
 	private function load_licenses() {

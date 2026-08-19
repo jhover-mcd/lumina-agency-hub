@@ -18,6 +18,10 @@ return array(
 	'admin_password' => 'change-this-to-a-strong-password',
 
 	// How long to cache feed responses (seconds).
+	// Default: 3600 (1 hour) - good for automatic feeds
+	// Note: For curated feeds in WordPress, the plugin should refresh URLs
+	// every 3-5 days to prevent Instagram URL expiration (URLs expire ~7 days).
+	// See CURATED_FEED_FIX.md for WordPress plugin implementation.
 	'cache_ttl' => 3600,
 
 	// Path to the licenses file (relative to agency-hub directory).
