@@ -282,6 +282,11 @@ a {
 	color: var(--lumina-danger);
 }
 
+.lumina-hub-badge--warn {
+	background: #fef3c7;
+	color: #92400e;
+}
+
 .lumina-hub-notice {
 	background: #eff6ff;
 	border: 1px solid #bfdbfe;

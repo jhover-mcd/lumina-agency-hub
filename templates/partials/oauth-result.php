@@ -45,7 +45,7 @@ $license_label      = (string) ( $oauth_result['license_label'] ?? $oauth_result
 		<label>Long-lived access token (60 days)</label>
 		<textarea readonly rows="4" onclick="this.select();"><?php echo htmlspecialchars( (string) ( $oauth_result['access_token'] ?? '' ), ENT_QUOTES, 'UTF-8' ); ?></textarea>
 		<?php if ( ! empty( $oauth_result['expires_in'] ) ) : ?>
-			<p class="description">Expires in <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. Set a reminder to reconnect before it lapses.</p>
+			<p class="description">Expires in <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. The hub renews this automatically; reconnect only if renewal fails.</p>
 		<?php endif; ?>
 		<?php if ( ! empty( $oauth_result['token_note'] ) ) : ?>
 			<p class="description"><?php echo htmlspecialchars( (string) $oauth_result['token_note'], ENT_QUOTES, 'UTF-8' ); ?></p>
@@ -53,7 +53,7 @@ $license_label      = (string) ( $oauth_result['license_label'] ?? $oauth_result
 	</div>
 	<?php else : ?>
 		<?php if ( ! empty( $oauth_result['expires_in'] ) ) : ?>
-			<p class="description">Token expires in about <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. Reconnect from the client row before it lapses.</p>
+			<p class="description">Token expires in about <?php echo (int) floor( (int) $oauth_result['expires_in'] / 86400 ); ?> days. The hub will renew it automatically before then.</p>
 		<?php endif; ?>
 		<?php if ( ! empty( $oauth_result['token_note'] ) ) : ?>
 			<p class="description"><?php echo htmlspecialchars( (string) $oauth_result['token_note'], ENT_QUOTES, 'UTF-8' ); ?></p>

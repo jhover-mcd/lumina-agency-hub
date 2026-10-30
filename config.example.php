@@ -17,6 +17,12 @@ return array(
 	// Secret used to protect the management UI.
 	'admin_password' => 'change-this-to-a-strong-password',
 
+	// Optional. Protects GET /cron/refresh-tokens, which renews Instagram
+	// tokens for every license. Feed and status requests also renew tokens
+	// that are at least 24 hours old. Set a random string and call daily:
+	// curl -H "X-Lumina-Cron: YOUR_SECRET" https://your-hub-domain/cron/refresh-tokens
+	'cron_secret' => '',
+
 	// How long to cache feed responses (seconds).
 	// Default: 3600 (1 hour) - good for automatic feeds
 	// Note: For curated feeds in WordPress, the plugin should refresh URLs

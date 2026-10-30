@@ -4,6 +4,10 @@
  */
 
 class Lumina_Agency_Hub {
+	const TOKEN_MIN_AGE       = 86400;
+	const TOKEN_TTL           = 5184000;
+	const TOKEN_EXPIRING_SOON = 1209600;
+
 	private $config;
 	private $licenses;
 
@@ -22,10 +26,14 @@ class Lumina_Agency_Hub {
 				array(
 					'status'    => 'ok',
 					'service'   => 'lumina-agency-hub',
-					'hub_build' => '2026-08-19-url-refresh',
+					'hub_build' => '2026-10-30-token-refresh',
 					'demo'      => ! empty( $this->config['demo_mode'] ),
 				)
 			);
+		}
+
+		if ( '/cron/refresh-tokens' === $path ) {
+			$this->handle_cron_refresh_tokens();
 		}
 
 		if ( '/v1/feed' === $path ) {
@@ -95,8 +103,9 @@ class Lumina_Agency_Hub {
 	}
 
 	private function get_feed() {
-		$license_key = $this->get_license_key();
-		$license     = $this->resolve_license( $license_key );
+		$prepared = $this->prepare_license_request();
+		$license_key = $prepared['key'];
+		$license     = $prepared['license'];
 
 		if ( isset( $license['error'] ) ) {
 			return $this->error_payload( $license['error'], $license['code'] );
@@ -109,7 +118,7 @@ class Lumina_Agency_Hub {
 			$cache = $this->read_cache( $license_key, $limit );
 
 			if ( null !== $cache ) {
-				return $cache;
+				return $this->with_token_fields( $cache, $license_key );
 			}
 		}
 
@@ -129,14 +138,17 @@ class Lumina_Agency_Hub {
 				return $this->error_payload( $profile['error'], $profile['code'] ?? 500 );
 			}
 		}
-		$payload = array(
-			'active'         => true,
-			'user_id'        => $license['user_id'],
-			'label'          => $license['label'] ?? '',
-			'username'       => $profile['username'] ?? '',
-			'items'          => $items,
-			'fetched_at'     => time(),
-			'fetched_at_iso' => gmdate( 'c' ),
+		$payload = $this->with_token_fields(
+			array(
+				'active'         => true,
+				'user_id'        => $license['user_id'],
+				'label'          => $license['label'] ?? '',
+				'username'       => $profile['username'] ?? '',
+				'items'          => $items,
+				'fetched_at'     => time(),
+				'fetched_at_iso' => gmdate( 'c' ),
+			),
+			$license_key
 		);
 
 		$this->write_cache( $license_key, $limit, $payload );
@@ -145,8 +157,9 @@ class Lumina_Agency_Hub {
 	}
 
 	private function refresh_feed() {
-		$license_key = $this->get_license_key();
-		$license     = $this->resolve_license( $license_key );
+		$prepared = $this->prepare_license_request();
+		$license_key = $prepared['key'];
+		$license     = $prepared['license'];
 
 		if ( isset( $license['error'] ) ) {
 			return $this->error_payload( $license['error'], $license['code'] );
@@ -173,15 +186,18 @@ class Lumina_Agency_Hub {
 			}
 		}
 
-		$payload = array(
-			'active'         => true,
-			'user_id'        => $license['user_id'],
-			'label'          => $license['label'] ?? '',
-			'username'       => $profile['username'] ?? '',
-			'items'          => $items,
-			'fetched_at'     => time(),
-			'fetched_at_iso' => gmdate( 'c' ),
-			'refreshed'      => true,
+		$payload = $this->with_token_fields(
+			array(
+				'active'         => true,
+				'user_id'        => $license['user_id'],
+				'label'          => $license['label'] ?? '',
+				'username'       => $profile['username'] ?? '',
+				'items'          => $items,
+				'fetched_at'     => time(),
+				'fetched_at_iso' => gmdate( 'c' ),
+				'refreshed'      => true,
+			),
+			$license_key
 		);
 
 		$this->write_cache( $license_key, $limit, $payload );
@@ -190,8 +206,9 @@ class Lumina_Agency_Hub {
 	}
 
 	private function get_status() {
-		$license_key = $this->get_license_key();
-		$license     = $this->resolve_license( $license_key );
+		$prepared = $this->prepare_license_request();
+		$license_key = $prepared['key'];
+		$license     = $prepared['license'];
 
 		if ( isset( $license['error'] ) ) {
 			return $this->error_payload( $license['error'], $license['code'] );
@@ -207,13 +224,16 @@ class Lumina_Agency_Hub {
 			}
 		}
 
-		return array(
-			'active'       => true,
-			'user_id'      => $license['user_id'],
-			'label'        => $license['label'] ?? '',
-			'username'     => $profile['username'] ?? '',
-			'account_type' => $profile['account_type'] ?? '',
-			'media_count'  => $profile['media_count'] ?? 0,
+		return $this->with_token_fields(
+			array(
+				'active'       => true,
+				'user_id'      => $license['user_id'],
+				'label'        => $license['label'] ?? '',
+				'username'     => $profile['username'] ?? '',
+				'account_type' => $profile['account_type'] ?? '',
+				'media_count'  => $profile['media_count'] ?? 0,
+			),
+			$license_key
 		);
 	}
 
@@ -233,16 +253,19 @@ class Lumina_Agency_Hub {
 		$labels = array( 'Studio session', 'New project drop', 'Behind the scenes', 'Fresh install', 'Weekend mood', 'Team spotlight' );
 
 		for ( $i = 0; $i < $limit; $i++ ) {
-			$seed = md5( ( $license['user_id'] ?? 'demo' ) . $i );
+			$seed    = md5( ( $license['user_id'] ?? 'demo' ) . $i );
+			$is_reel = 2 === $i % 5;
 			$items[] = array(
-				'id'         => 'demo-' . $i,
-				'caption'    => ( $labels[ $i % count( $labels ) ] ?? 'Demo post' ) . ' #' . ( $i + 1 ),
-				'media_type' => 2 === $i % 5 ? 'VIDEO' : 'IMAGE',
-				'image_url'  => 'https://picsum.photos/seed/' . $seed . '/800/800',
-				'permalink'  => 'https://instagram.com/p/demo' . $i,
-				'timestamp'  => gmdate( 'c', time() - ( $i * 86400 ) ),
-				'username'   => $slug . '_studio',
-				'date'       => gmdate( 'M j, Y', time() - ( $i * 86400 ) ),
+				'id'                 => 'demo-' . $i,
+				'caption'            => ( $labels[ $i % count( $labels ) ] ?? 'Demo post' ) . ' #' . ( $i + 1 ),
+				'media_type'         => $is_reel ? 'VIDEO' : 'IMAGE',
+				'media_product_type' => $is_reel ? 'REELS' : 'FEED',
+				'image_url'          => 'https://picsum.photos/seed/' . $seed . '/800/800',
+				'video_url'          => $is_reel ? 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4' : '',
+				'permalink'          => $is_reel ? 'https://instagram.com/reel/demo' . $i : 'https://instagram.com/p/demo' . $i,
+				'timestamp'          => gmdate( 'c', time() - ( $i * 86400 ) ),
+				'username'           => $slug . '_studio',
+				'date'               => gmdate( 'M j, Y', time() - ( $i * 86400 ) ),
 			);
 		}
 
@@ -333,7 +356,7 @@ class Lumina_Agency_Hub {
 		$url = $this->instagram_graph_url(
 			'me/media',
 			array(
-				'fields'       => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
+				'fields'       => 'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,username',
 				'limit'        => $limit,
 				'access_token' => $access_token,
 			)
@@ -349,21 +372,34 @@ class Lumina_Agency_Hub {
 
 		foreach ( $response['data'] ?? array() as $item ) {
 			$media_type = $item['media_type'] ?? 'IMAGE';
+			$permalink  = (string) ( $item['permalink'] ?? '' );
+			$product    = (string) ( $item['media_product_type'] ?? '' );
 			$image_url  = $item['media_url'] ?? '';
+			$video_url  = '';
 
-			if ( 'VIDEO' === $media_type && ! empty( $item['thumbnail_url'] ) ) {
-				$image_url = $item['thumbnail_url'];
+			if ( 'VIDEO' === $media_type ) {
+				$video_url = (string) ( $item['media_url'] ?? '' );
+
+				if ( ! empty( $item['thumbnail_url'] ) ) {
+					$image_url = $item['thumbnail_url'];
+				}
+			}
+
+			if ( '' === $product && false !== strpos( $permalink, '/reel/' ) ) {
+				$product = 'REELS';
 			}
 
 			$items[] = array(
-				'id'         => (string) ( $item['id'] ?? '' ),
-				'caption'    => (string) ( $item['caption'] ?? '' ),
-				'media_type' => (string) $media_type,
-				'image_url'  => (string) $image_url,
-				'permalink'  => (string) ( $item['permalink'] ?? '' ),
-				'timestamp'  => (string) ( $item['timestamp'] ?? '' ),
-				'username'   => (string) ( $item['username'] ?? '' ),
-				'date'       => $this->format_date( $item['timestamp'] ?? '' ),
+				'id'                 => (string) ( $item['id'] ?? '' ),
+				'caption'            => (string) ( $item['caption'] ?? '' ),
+				'media_type'         => (string) $media_type,
+				'media_product_type' => $product,
+				'image_url'          => (string) $image_url,
+				'video_url'          => $video_url,
+				'permalink'          => $permalink,
+				'timestamp'          => (string) ( $item['timestamp'] ?? '' ),
+				'username'           => (string) ( $item['username'] ?? '' ),
+				'date'               => $this->format_date( $item['timestamp'] ?? '' ),
 			);
 		}
 
@@ -636,6 +672,23 @@ class Lumina_Agency_Hub {
 			$this->redirect_manage( 'updated=1' );
 		}
 
+		if ( 'refresh_token' === $action && isset( $this->licenses[ $license_key ] ) ) {
+			$updated = $this->parse_time( $this->licenses[ $license_key ]['token_updated_at'] ?? '' );
+
+			if ( $updated && ( time() - $updated ) < self::TOKEN_MIN_AGE ) {
+				$this->redirect_manage( 'token_refresh_error=' . rawurlencode( 'Instagram will not renew a token until it is at least 24 hours old. It will renew automatically after that.' ) );
+			}
+
+			$ok = $this->refresh_license_token( $license_key, true );
+
+			if ( $ok ) {
+				$this->redirect_manage( 'token_refreshed=1' );
+			}
+
+			$error = (string) ( $this->licenses[ $license_key ]['token_refresh_error'] ?? 'Could not refresh this Instagram token.' );
+			$this->redirect_manage( 'token_refresh_error=' . rawurlencode( $error ) );
+		}
+
 		$this->redirect_manage();
 	}
 
@@ -669,7 +722,10 @@ class Lumina_Agency_Hub {
 		}
 
 		$license_accounts = array();
+		$token_health     = array();
 		foreach ( $this->licenses as $key => $license ) {
+			$token_health[ $key ] = $this->get_token_health( $license );
+
 			if ( empty( $license['access_token'] ) ) {
 				continue;
 			}
@@ -695,6 +751,7 @@ class Lumina_Agency_Hub {
 				'oauth_redirect_uri' => $this->get_oauth_redirect_uri(),
 				'token_account'      => $token_account,
 				'license_accounts'   => $license_accounts,
+				'token_health'       => $token_health,
 			)
 		);
 	}
@@ -967,11 +1024,10 @@ class Lumina_Agency_Hub {
 		$license_label    = '';
 
 		if ( '' !== $license_key && isset( $this->licenses[ $license_key ] ) ) {
-			$this->licenses[ $license_key ]['access_token']    = $access_token;
-			$this->licenses[ $license_key ]['user_id']         = $user_id;
-			$this->licenses[ $license_key ]['username']        = $username;
-			$this->licenses[ $license_key ]['token_updated_at'] = gmdate( 'c' );
+			$this->licenses[ $license_key ]['user_id']  = $user_id;
+			$this->licenses[ $license_key ]['username'] = $username;
 			$this->save_licenses();
+			$this->store_license_token( $license_key, $access_token, $expires_in );
 			$saved_to_license = true;
 			$license_label    = (string) ( $this->licenses[ $license_key ]['label'] ?? $license_key );
 		}
@@ -1102,6 +1158,327 @@ class Lumina_Agency_Hub {
 
 	private function remote_post( $url, array $payload ) {
 		return $this->http_request( 'POST', $url, $payload );
+	}
+
+	private function prepare_license_request() {
+		$license_key = $this->get_license_key();
+		$license     = $this->resolve_license( $license_key );
+
+		if ( isset( $license['error'] ) ) {
+			return array(
+				'key'     => $license_key,
+				'license' => $license,
+			);
+		}
+
+		$this->maybe_refresh_license_token( $license_key );
+
+		$license = $this->licenses[ $license_key ] ?? $license;
+		$health  = $this->get_token_health( $license );
+
+		if ( 'expired' === $health['status'] ) {
+			return array(
+				'key'     => $license_key,
+				'license' => array(
+					'error' => 'Instagram access expired. Reconnect Instagram for this client in the agency hub.',
+					'code'  => 403,
+				),
+			);
+		}
+
+		return array(
+			'key'     => $license_key,
+			'license' => $license,
+		);
+	}
+
+	private function maybe_refresh_license_token( $license_key ) {
+		if ( ! empty( $this->config['demo_mode'] ) || '' === $license_key ) {
+			return;
+		}
+
+		static $attempted = array();
+
+		if ( isset( $attempted[ $license_key ] ) ) {
+			return;
+		}
+
+		$attempted[ $license_key ] = true;
+
+		$this->with_token_lock(
+			$license_key,
+			function () use ( $license_key ) {
+				$this->licenses = $this->load_licenses();
+
+				if ( empty( $this->licenses[ $license_key ] ) ) {
+					return;
+				}
+
+				if ( ! $this->token_is_due_for_refresh( $this->licenses[ $license_key ] ) ) {
+					return;
+				}
+
+				$this->refresh_license_token( $license_key );
+			}
+		);
+	}
+
+	private function token_is_due_for_refresh( array $license ) {
+		if ( empty( $license['access_token'] ) ) {
+			return false;
+		}
+
+		$now     = time();
+		$updated = $this->parse_time( $license['token_updated_at'] ?? '' );
+		$expires = $this->get_token_expiry_ts( $license );
+
+		if ( $expires && $now >= $expires ) {
+			return false;
+		}
+
+		if ( $updated && ( $now - $updated ) < self::TOKEN_MIN_AGE ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	private function refresh_license_token( $license_key, $force = false ) {
+		$license = $this->licenses[ $license_key ] ?? array();
+		$token   = (string) ( $license['access_token'] ?? '' );
+
+		if ( '' === $token ) {
+			$this->mark_token_refresh_error( $license_key, 'No Instagram token saved on this license.' );
+			return false;
+		}
+
+		$expires = $this->get_token_expiry_ts( $license );
+
+		if ( $expires && time() >= $expires ) {
+			$this->mark_token_refresh_error( $license_key, 'Token expired. Reconnect Instagram on this client row.' );
+			return false;
+		}
+
+		if ( ! $force && ! $this->token_is_due_for_refresh( $license ) ) {
+			return false;
+		}
+
+		$response = $this->remote_get(
+			$this->instagram_graph_url(
+				'refresh_access_token',
+				array(
+					'grant_type'   => 'ig_refresh_token',
+					'access_token' => $token,
+				)
+			)
+		);
+
+		if ( isset( $response['error'] ) ) {
+			$error = (string) $response['error'];
+
+			if ( $this->is_nonfatal_refresh_error( $error ) ) {
+				return false;
+			}
+
+			$this->mark_token_refresh_error( $license_key, $error );
+			return false;
+		}
+
+		$new_token  = (string) ( $response['access_token'] ?? '' );
+		$expires_in = (int) ( $response['expires_in'] ?? 0 );
+
+		if ( '' === $new_token ) {
+			$this->mark_token_refresh_error( $license_key, 'Instagram did not return a refreshed token.' );
+			return false;
+		}
+
+		$this->store_license_token( $license_key, $new_token, $expires_in );
+
+		return true;
+	}
+
+	private function store_license_token( $license_key, $access_token, $expires_in = 0 ) {
+		$this->licenses = $this->load_licenses();
+
+		if ( ! isset( $this->licenses[ $license_key ] ) ) {
+			return;
+		}
+
+		$now = time();
+		$this->licenses[ $license_key ]['access_token']     = (string) $access_token;
+		$this->licenses[ $license_key ]['token_updated_at'] = gmdate( 'c', $now );
+
+		if ( (int) $expires_in > 0 ) {
+			$this->licenses[ $license_key ]['token_expires_at'] = gmdate( 'c', $now + (int) $expires_in );
+			$this->licenses[ $license_key ]['token_expires_in'] = (int) $expires_in;
+		} else {
+			$this->licenses[ $license_key ]['token_expires_at'] = gmdate( 'c', $now + self::TOKEN_TTL );
+			$this->licenses[ $license_key ]['token_expires_in'] = self::TOKEN_TTL;
+		}
+
+		unset( $this->licenses[ $license_key ]['token_refresh_error'], $this->licenses[ $license_key ]['token_refresh_failed_at'] );
+		$this->save_licenses();
+	}
+
+	private function mark_token_refresh_error( $license_key, $message ) {
+		$this->licenses = $this->load_licenses();
+
+		if ( ! isset( $this->licenses[ $license_key ] ) ) {
+			return;
+		}
+
+		$this->licenses[ $license_key ]['token_refresh_error']     = (string) $message;
+		$this->licenses[ $license_key ]['token_refresh_failed_at'] = gmdate( 'c' );
+		$this->save_licenses();
+	}
+
+	private function is_nonfatal_refresh_error( $message ) {
+		$haystack = strtolower( (string) $message );
+
+		return false !== strpos( $haystack, '24 hour' )
+			|| false !== strpos( $haystack, 'at least 24' )
+			|| false !== strpos( $haystack, 'not yet' )
+			|| false !== strpos( $haystack, 'too recent' )
+			|| false !== strpos( $haystack, 'less than 24' );
+	}
+
+	private function parse_time( $value ) {
+		if ( empty( $value ) ) {
+			return 0;
+		}
+
+		if ( is_numeric( $value ) ) {
+			return (int) $value;
+		}
+
+		$time = strtotime( (string) $value );
+
+		return $time ? $time : 0;
+	}
+
+	private function get_token_expiry_ts( array $license ) {
+		$expires = $this->parse_time( $license['token_expires_at'] ?? '' );
+
+		if ( $expires ) {
+			return $expires;
+		}
+
+		$updated = $this->parse_time( $license['token_updated_at'] ?? '' );
+
+		if ( $updated ) {
+			return $updated + self::TOKEN_TTL;
+		}
+
+		return 0;
+	}
+
+	private function get_token_health( array $license ) {
+		if ( empty( $license['access_token'] ) ) {
+			return array(
+				'status'         => 'missing',
+				'expires_at'     => '',
+				'days_remaining' => null,
+				'error'          => '',
+			);
+		}
+
+		$now       = time();
+		$expires   = $this->get_token_expiry_ts( $license );
+		$remaining = $expires ? ( $expires - $now ) : null;
+		$error     = (string) ( $license['token_refresh_error'] ?? '' );
+		$status    = 'ok';
+
+		if ( null !== $remaining && $remaining <= 0 ) {
+			$status = 'expired';
+		} elseif ( '' !== $error ) {
+			$status = 'error';
+		} elseif ( null !== $remaining && $remaining <= self::TOKEN_EXPIRING_SOON ) {
+			$status = 'expiring';
+		} elseif ( null === $remaining ) {
+			$status = 'unknown';
+		}
+
+		return array(
+			'status'         => $status,
+			'expires_at'     => $expires ? gmdate( 'c', $expires ) : '',
+			'days_remaining' => null === $remaining ? null : (int) floor( $remaining / 86400 ),
+			'error'          => $error,
+		);
+	}
+
+	private function with_token_fields( array $payload, $license_key ) {
+		$health = $this->get_token_health( $this->licenses[ $license_key ] ?? array() );
+
+		$payload['token_status']         = $health['status'];
+		$payload['token_expires_at']     = $health['expires_at'];
+		$payload['token_days_remaining'] = $health['days_remaining'];
+
+		return $payload;
+	}
+
+	private function with_token_lock( $license_key, $callback ) {
+		$dir = __DIR__ . '/../cache';
+
+		if ( ! is_dir( $dir ) ) {
+			mkdir( $dir, 0755, true );
+		}
+
+		$file = $dir . '/token-lock-' . md5( (string) $license_key ) . '.lock';
+		$fp   = fopen( $file, 'c' );
+
+		if ( ! $fp || ! flock( $fp, LOCK_EX | LOCK_NB ) ) {
+			if ( $fp ) {
+				fclose( $fp );
+			}
+
+			return false;
+		}
+
+		try {
+			return $callback();
+		} finally {
+			flock( $fp, LOCK_UN );
+			fclose( $fp );
+		}
+	}
+
+	private function handle_cron_refresh_tokens() {
+		$secret = (string) ( $this->config['cron_secret'] ?? '' );
+
+		if ( '' === $secret ) {
+			$this->json( array( 'message' => 'Not found.' ), 404 );
+		}
+
+		$provided = '';
+
+		if ( ! empty( $_SERVER['HTTP_X_LUMINA_CRON'] ) ) {
+			$provided = (string) $_SERVER['HTTP_X_LUMINA_CRON'];
+		} elseif ( ! empty( $_GET['key'] ) ) {
+			$provided = (string) $_GET['key'];
+		}
+
+		if ( ! hash_equals( $secret, $provided ) ) {
+			$this->json( array( 'error' => 'Unauthorized.' ), 403 );
+		}
+
+		$results = array();
+
+		foreach ( array_keys( $this->licenses ) as $key ) {
+			$this->maybe_refresh_license_token( $key );
+			$health = $this->get_token_health( $this->licenses[ $key ] ?? array() );
+			$results[ $key ] = array(
+				'label'          => $this->licenses[ $key ]['label'] ?? '',
+				'status'         => $health['status'],
+				'days_remaining' => $health['days_remaining'],
+			);
+		}
+
+		$this->json(
+			array(
+				'ok'       => true,
+				'licenses' => $results,
+			)
+		);
 	}
 
 	private function json( $payload, $status = 200 ) {

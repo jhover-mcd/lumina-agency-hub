@@ -10,9 +10,14 @@
  * @var string $oauth_redirect_uri Registered redirect URI.
  * @var array|null $token_account Live lookup from legacy config token.
  * @var array $license_accounts Connected account lookup per license key.
+ * @var array $token_health Token expiry status per license key.
  */
 
 defined( 'LUMINA_HUB_RENDER' ) || exit;
+
+if ( ! isset( $token_health ) || ! is_array( $token_health ) ) {
+	$token_health = array();
+}
 
 $active_count  = 0;
 $revoked_count = 0;
@@ -29,6 +34,8 @@ foreach ( $licenses as $license ) {
 <?php if ( ! empty( $_GET['activated'] ) ) : ?><div class="lumina-hub-notice">License reactivated.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['added'] ) ) : ?><div class="lumina-hub-notice">License added.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['updated'] ) ) : ?><div class="lumina-hub-notice">Instagram User ID updated.</div><?php endif; ?>
+<?php if ( ! empty( $_GET['token_refreshed'] ) ) : ?><div class="lumina-hub-notice">Instagram token renewed. It is valid for about 60 more days.</div><?php endif; ?>
+<?php if ( ! empty( $_GET['token_refresh_error'] ) ) : ?><div class="lumina-hub-error"><?php echo htmlspecialchars( (string) $_GET['token_refresh_error'], ENT_QUOTES, 'UTF-8' ); ?></div><?php endif; ?>
 <?php if ( ! empty( $_GET['csrf_error'] ) ) : ?><div class="lumina-hub-error">Your session expired. Please try again.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['oauth_config_error'] ) ) : ?><div class="lumina-hub-error">Add <code>instagram_app_id</code>, <code>instagram_app_secret</code>, and <code>hub_public_url</code> to <code>config.php</code> before connecting Instagram.</div><?php endif; ?>
 <?php if ( ! empty( $_GET['oauth_error'] ) ) : ?><div class="lumina-hub-error"><?php echo htmlspecialchars( (string) $_GET['oauth_error'], ENT_QUOTES, 'UTF-8' ); ?></div><?php endif; ?>
@@ -41,7 +48,7 @@ foreach ( $licenses as $license ) {
 <div class="lumina-hub-card">
 	<h2>Connect Instagram per client</h2>
 	<?php if ( ! empty( $oauth_ready ) ) : ?>
-		<p class="description">Each client site needs its own Instagram token. In the table below, click <strong>Connect Instagram</strong> on the client row, log in with that client’s Instagram Business or Creator account, and the hub saves the token to that license automatically.</p>
+		<p class="description">Each client site needs its own Instagram token. In the table below, click <strong>Connect Instagram</strong> on the client row, log in with that client’s Instagram Business or Creator account, and the hub saves the token to that license automatically. Long-lived tokens are renewed automatically before they expire.</p>
 		<p class="description"><strong>Redirect URI</strong> (must match Meta App Dashboard exactly):<br /><code class="lumina-hub-code"><?php echo htmlspecialchars( $oauth_redirect_uri, ENT_QUOTES, 'UTF-8' ); ?></code></p>
 		<p class="description">In Meta App Dashboard → Instagram → API setup with Instagram login → Business login settings, add that URI under OAuth redirect URIs.</p>
 	<?php else : ?>
@@ -118,6 +125,8 @@ foreach ( $licenses as $license ) {
 				<?php
 				$has_token = ! empty( $license['access_token'] );
 				$connected = $license_accounts[ $key ] ?? null;
+				$health    = $token_health[ $key ] ?? array();
+				$health_status = (string) ( $health['status'] ?? 'missing' );
 				?>
 				<tr>
 					<td><code class="lumina-hub-code"><?php echo htmlspecialchars( $key, ENT_QUOTES, 'UTF-8' ); ?></code></td>
@@ -131,8 +140,28 @@ foreach ( $licenses as $license ) {
 						<?php else : ?>
 							<span class="lumina-hub-badge lumina-hub-badge--revoked">Not connected</span>
 						<?php endif; ?>
+						<?php if ( 'ok' === $health_status && null !== ( $health['days_remaining'] ?? null ) ) : ?>
+							<p class="description">Token auto-renews · <?php echo (int) $health['days_remaining']; ?> days left</p>
+						<?php elseif ( 'expiring' === $health_status ) : ?>
+							<p><span class="lumina-hub-badge lumina-hub-badge--warn">Expires in <?php echo (int) ( $health['days_remaining'] ?? 0 ); ?> days</span></p>
+						<?php elseif ( 'expired' === $health_status ) : ?>
+							<p><span class="lumina-hub-badge lumina-hub-badge--revoked">Token expired — reconnect</span></p>
+						<?php elseif ( 'error' === $health_status ) : ?>
+							<p><span class="lumina-hub-badge lumina-hub-badge--warn">Renewal failed</span></p>
+							<?php if ( ! empty( $health['error'] ) ) : ?>
+								<p class="description"><?php echo htmlspecialchars( (string) $health['error'], ENT_QUOTES, 'UTF-8' ); ?></p>
+							<?php endif; ?>
+						<?php endif; ?>
 						<?php if ( ! empty( $oauth_ready ) ) : ?>
 							<p><a class="lumina-hub-btn lumina-hub-btn--dark" href="/oauth/start?license_key=<?php echo rawurlencode( $key ); ?>"><?php echo $has_token ? 'Reconnect Instagram' : 'Connect Instagram'; ?></a></p>
+						<?php endif; ?>
+						<?php if ( $has_token ) : ?>
+							<form method="post" action="/manage">
+								<?php include __DIR__ . '/partials/csrf.php'; ?>
+								<input type="hidden" name="action" value="refresh_token" />
+								<input type="hidden" name="license_key" value="<?php echo htmlspecialchars( $key, ENT_QUOTES, 'UTF-8' ); ?>" />
+								<button type="submit" class="lumina-hub-btn lumina-hub-btn--dark">Renew token now</button>
+							</form>
 						<?php endif; ?>
 					</td>
 					<td>
